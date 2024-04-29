@@ -1,0 +1,19 @@
+Algorithm,Parameters,Silhouette Score
+KMeans,{'n_clusters': 10},0.15889193256805612
+KMeans,{'n_clusters': 20},0.1547475012049144
+AgglomerativeClustering,"{'n_clusters': 5, 'linkage': 'ward'}",0.15379169497801318
+AgglomerativeClustering,"{'n_clusters': 5, 'linkage': 'complete'}",0.13429245714767538
+AgglomerativeClustering,"{'n_clusters': 10, 'linkage': 'ward'}",0.1359876472026682
+AgglomerativeClustering,"{'n_clusters': 10, 'linkage': 'complete'}",0.1468664710185814
+AgglomerativeClustering,"{'n_clusters': 20, 'linkage': 'ward'}",0.13949631134849985
+AgglomerativeClustering,"{'n_clusters': 20, 'linkage': 'complete'}",0.11944576384821759
+DBSCAN,"{'eps': 0.1, 'min_samples': 5}",-0.36980875018370873
+DBSCAN,"{'eps': 0.1, 'min_samples': 10}",-0.18511780078738713
+DBSCAN,"{'eps': 0.2, 'min_samples': 5}",-0.2956016764290265
+DBSCAN,"{'eps': 0.2, 'min_samples': 10}",-0.311592892444315
+DBSCAN,"{'eps': 0.3, 'min_samples': 5}",-0.20237391540879082
+DBSCAN,"{'eps': 0.3, 'min_samples': 10}",-0.31643159388628234
+HDBSCAN,"{'min_cluster_size': 5, 'min_samples': 5}",0.31109471651059506
+HDBSCAN,"{'min_cluster_size': 5, 'min_samples': 10}",0.04297810401780212
+HDBSCAN,"{'min_cluster_size': 10, 'min_samples': 5}",0.1204758559005213
+HDBSCAN,"{'min_cluster_size': 10, 'min_samples': 10}",0.028953890519269478
