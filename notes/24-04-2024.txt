@@ -1,0 +1,24 @@
+How to proceed with clustering?
+1. Decide set of traits to use (based on previous paper or other metric).
+2. Use Gaussian Mixture Model, it could be for:
+    2.1 Inputed data (based on phy or other method)
+    2.2 Incomplete data
+3. Try different parameters for Mixture Models. Use evaluation metrics (AIC, BIC, Silhoutte)
+4. With the GMM we will output a mean vector and covariance matrix for each cluster. Some things we could show/study:
+    - For each species we will have both, the probability that it belongs to cluster k and its density f_k if it was
+    part of cluster k. We calculate some sort of p-values for outlier identification. 
+    - It'd be interesting to study those points that have very low density (or p-val) in its selected cluster
+    - If we compute this p-values, we could see how well they adjust to a Uniform distribution. I feel like this
+    could have some insights related to Neutral Theory (or might also be related to just errors in the data)
+    - I guess Neutral Theory would kind of assume that there is only one cluster (I'm not sure if necessarily 
+    Normally distributed). We could compare this one cluster model to our K cluster model obtained with the GMM
+    - I feel like it would probably be better if we selected only one K for most of the results, but it might be 
+    worth showing results for various K (in the line of: how would the world look if it was like this?)
+
+
+Other questions:
+- Is the data missing at random?
+
+
+Maybe:
+    - Bootstrapping traits to see consensus
