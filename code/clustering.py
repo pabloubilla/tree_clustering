@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.colors import Normalize
 
-from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN, HDBSCAN
+# from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN, HDBSCAN
 from sklearn.mixture import GaussianMixture
 from sklearn.metrics import silhouette_score
 from sklearn.decomposition import PCA
@@ -190,7 +190,7 @@ def fit_gmm(n_components, df):
     bic = model.bic(df)
     return n_components, bic
 
-def run_mixtures(df, output_path, n_component_list, parallel=True, verbose=False):
+def run_mixtures(df, output_path, n_component_list, cov_type = 'tied', parallel=True, verbose=False):
     if verbose: print("Starting the mixture model fitting process...")
 
     # Perform PCA
@@ -203,7 +203,7 @@ def run_mixtures(df, output_path, n_component_list, parallel=True, verbose=False
         # Use Pool to parallelize fitting models if parallel is True
         with Pool() as pool:
             # results = pool.starmap(fit_gmm, [(n, df) for n in n_component_list])
-            results = pool.starmap(evaluate_mixture, [(df_train, df_test, n) for n in n_component_list])
+            results = pool.starmap(evaluate_mixture, [(df_train, df_test, n, cov_type) for n in n_component_list])
             # with tqdm
             # results = list(tqdm.tqdm(pool.starmap(fit_gmm, [(n, df) for n in n_component_list]), total=len(n_component_list)))
     else:
@@ -260,13 +260,13 @@ def plot_metrics(n_component_list, metric_values, metric_name, output_path, file
     plt.savefig(os.path.join(output_path, f'GaussianMixture_{file_name}.png'), dpi=300)
     plt.clf()
 
-def evaluate_mixture(df_train, df_test, n_components):
+def evaluate_mixture(df_train, df_test, n_components, covariance_type='tied'):
 
     '''
     Fit a Gaussian Mixture model with n_components components to the training data
     and evaluate it using the BIC, AIC, and log-likelihood on both the training and test data.
     '''
-    model = GaussianMixture(n_components=n_components, covariance_type='tied', max_iter=1000,
+    model = GaussianMixture(n_components=n_components, covariance_type=covariance_type, max_iter=1000,
                             n_init=1, random_state=42)
     model.fit(df_train)
     bic_train, bic_test = model.bic(df_train), model.bic(df_test)
@@ -334,9 +334,115 @@ def samples_mixture(df, n_components, output_path, samples=100):
         # plot hist
         histplot_clusters(cluster_counts, output_path, file_name=f'histplot_clusters_sample_{s}')
 
+def grid_histplot_clusters(df, n_component_list, output_path, file_name = 'grid_histplot_clusters'):
+    num_plots = len(n_component_list)
+    # Create the with 2 plots per row
+    fig, axs = plt.subplots(num_plots//2, 2, figsize=(20, 10*num_plots//2),
+                            sharey=True, sharex=True)  # Use subplots for better control
+    
+    for i, n_components in enumerate(n_component_list):
+        print(f'Running Gaussian Mixture with {n_components} components')
+        # fit Gussian Mixture
+        model = GaussianMixture(n_components=n_components, covariance_type='tied', max_iter=1000)
+        model.fit(df)
+        cluster_labels = model.predict(df)
+        df['cluster'] = cluster_labels
+        cluster_counts = df['cluster'].value_counts()
+        # Create the plot
+        sns.histplot(cluster_counts, ax=axs[i//2, i%2], color='hotpink', 
+                     edgecolor='black', binwidth=20)
+        # show number of clusters in box
+        axs[i//2, i%2].text(0.5, 0.9, f'K={n_components}', horizontalalignment='center',
+                            verticalalignment='center', transform=axs[i//2, i%2].transAxes, fontsize=12)
+        
+        # Setting axis names
+        axs[i//2, i%2].set_xlabel('Number of Species')
+        axs[i//2, i%2].set_ylabel('Frequency')
 
+    file_path = os.path.join(output_path, file_name) + '.png'
+    # save the plot
+    plt.tight_layout()  # Adjust layout to not cut off labels
+    plt.savefig(file_path)
+    plt.close(fig)  # Close the figure to free memory
 
+class BootstrapGMM:
+    def __init__(self, n_components=1, max_iter=1000, covariance_type='tied'):
+        self.n_components = n_components
+        self.max_iter = max_iter
+        self.covariance_type = covariance_type
+        self.ll_samples = []
+        self.mean_samples = []
+        self.cov_samples = []
 
+    def fit(self, df, samples=100):
+        for s in range(samples):
+            df_s = df.sample(frac=1, replace=True)
+            model = GaussianMixture(n_components=self.n_components, covariance_type=self.covariance_type, max_iter=self.max_iter)
+            model.fit(df_s)
+            self.ll_samples.append(model.score(df_s))
+            self.mean_samples.append(model.means_)
+            self.cov_samples.append(model.covariances_)
+    
+    def save_results(self, output_path):
+        results_dict = {
+            'll_samples': self.ll_samples,
+            'mean_samples': self.mean_samples,
+            'cov_samples': self.cov_samples
+        }
+        results_df = pd.DataFrame(results_dict)
+        results_df.to_csv(output_path, index=False)
+
+def bootstrap_test(df, g0, g1, cov_type = 'tied', samples = 100, verbose = True):
+    '''
+    Perform a bootstrap test to compare two Gaussian Mixture models with g0 and g1 components.
+    H0: g0 components are sufficient
+    H1: g1 components are required (g1 > g0)
+    '''
+
+    # fit g0
+    model0 = GaussianMixture(n_components=g0, covariance_type=cov_type, max_iter=1000)
+    model0.fit(df)
+    
+    # fit g1
+    model1 = GaussianMixture(n_components=g1, covariance_type=cov_type, max_iter=1000)
+    model1.fit(df)
+
+    # get LRTS
+    ll0 = model0.score(df)
+    ll1 = model1.score(df)
+    LRTS = 2*(ll1 - ll0)
+
+    # iterate through the samples
+    LRTS_list = []
+    if verbose: print('Running bootstrap test')
+    for s in tqdm.tqdm(range(samples), disable=not verbose):
+        # generate bootstrap from model0
+        df_s = model0.sample(len(df))[0]
+
+        # fit g0 and g1 to the bootstrap
+        model0_s = GaussianMixture(n_components=g0, covariance_type=cov_type, max_iter=1000)
+        model0_s.fit(df_s)
+        ll0_s = model0_s.score(df_s)
+        model1_s = GaussianMixture(n_components=g1, covariance_type=cov_type, max_iter=1000)
+        model1_s.fit(df_s)
+        ll1_s = model1_s.score(df_s)
+        LRTS_s = 2*(ll1_s - ll0_s) # calculate LRTS for this sample
+        LRTS_list.append(LRTS_s)
+
+    # calculate p-value
+    p_value = np.mean(LRTS > np.array(LRTS_list))
+
+    # save 5th and 95th percentile
+    LRTS_list = np.array(LRTS_list)
+    percentile_5 = np.percentile(LRTS_list, 5)
+    percentile_95 = np.percentile(LRTS_list, 95)
+
+    if verbose:
+        print(f'LRTS: {LRTS}, p-value: {p_value}')
+        print(f'5th percentile: {percentile_5}, 95th percentile: {percentile_95}')
+    
+    return p_value
+    
 
 def main():
 
@@ -368,7 +474,7 @@ def main():
 # second version of the main function for Gaussian Mixture
 def main_v2():
     print('Running main_v2')
-    folder_name = 'complete_data/gaussian_mixture'
+    folder_name = 'complete_data/gaussian_mixture_full'
     complete = True
 
     # output path (create if it doesn't exist)
@@ -399,11 +505,16 @@ def main_v2():
         df_trait_imputed_save = pd.DataFrame(df_trait, columns=trait_labels, index=species_labels)
         df_trait_imputed_save.to_csv(os.path.join(data_path, 'traits_obs_log_imputed.csv'))
 
+    # n_components_list = [100,200,300,400,500,600]
+    # # grid histplot
+    # print('Running grid histplot')
+    # grid_histplot_clusters(df_trait, n_components_list, output_path, file_name = 'grid_histplot_clusters')
+    # exit()
 
     ### TRIAL ###
-    K = 100
-    model = GaussianMixture(n_components=K, covariance_type='tied', max_iter=1000,
-                            n_init=2, random_state=42)
+    K = 400
+    model = GaussianMixture(n_components=K, covariance_type='full', max_iter=1000,
+                            n_init=1, random_state=42)
     model.fit(df_trait)
 
     # some things we can compute
@@ -441,7 +552,7 @@ def main_v2():
     df_means.to_csv(os.path.join(output_path, f'cluster_means_{K}.csv'))
 
     # see how the plot change with shuffling
-    samples_mixture(df_trait, K, os.path.join(output_path, 'samples'), samples=100)
+    # samples_mixture(df_trait, K, os.path.join(output_path, 'samples'), samples=100)
 
 
 
@@ -472,3 +583,21 @@ def main_v2():
 
 if __name__ == '__main__':
     main_v2()
+    # read data
+    # folder_name = 'complete_data/gaussian_mixture_full'
+    # output_path = os.path.join(os.getcwd(), 'output', folder_name)
+
+    # df_trait = pd.read_csv('data/traits_pred_log.csv', index_col=0)
+
+    # n_component_list = [i for i in range(25,1025, 25)]
+    # print('Running Gaussian Mixture')
+    # run_mixtures(df_trait, output_path, n_component_list, cov_type='full', parallel=True, verbose=True)
+
+    # df_trait_sample = df_trait.sample(frac=0.5, random_state=42)
+
+
+    # # run bootstrap test
+    # bootstrap_test(df_trait_sample, 500, 501, samples=20)
+    # # print(f'LRTS: {LRTS}, p-value: {p_value}')
+
+
