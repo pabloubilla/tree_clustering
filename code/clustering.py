@@ -1,3 +1,4 @@
+#%%
 # import necessary libraries
 import numpy as np
 import pandas as pd
@@ -13,7 +14,7 @@ from sklearn.decomposition import PCA
 from sklearn.impute import KNNImputer
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
-import umap
+# import umap
 
 import os
 import tqdm
@@ -233,6 +234,65 @@ def run_mixtures(df, output_path, n_component_list, cov_type = 'tied', parallel=
     df_results = pd.DataFrame({'n_components': n_component_list, 'BIC_train': bics_train, 'BIC_test': bics_test,
                                 'AIC_train': aics_train, 'AIC_test': aics_test, 'LL_train': ll_train, 'LL_test': ll_test})
     df_results.to_csv(os.path.join(output_path, 'gmm_results.csv'), index=False)
+
+def cross_validate_gmm(df, n_component_list, output_path='', n_splits=5, cov_type='tied', parallel=False, verbose=False):
+    '''
+    Perform cross-validation on the Gaussian Mixture model with different numbers of components.
+    '''
+
+    # Split the data into n_splits folds
+    n_species = len(df)
+    indices_species = np.arange(n_species)
+    np.random.shuffle(indices_species)
+    fold_size = n_species // n_splits
+    fold_indices = [indices_species[i*fold_size:(i+1)*fold_size] for i in range(n_splits)]
+
+    # Create a dictionary to store the training and test data for each fold
+    train_test_data = {
+        i: {
+            "train": df.iloc[np.concatenate([fold_indices[j] for j in range(n_splits) if j != i])],
+            "test": df.iloc[fold_indices[i]]
+        }
+        for i in range(n_splits)
+    }
+
+    # Initialize lists to store the metrics
+    ll_train_list = []
+    ll_test_list = []
+
+    # Prepare the arguments for parallel processing
+    tasks = []
+    for n_components in n_component_list:
+        for i in range(n_splits):
+            df_train = train_test_data[i]["train"]
+            df_test = train_test_data[i]["test"]
+            tasks.append((df_train, df_test, n_components, cov_type))
+
+    if parallel:
+        # Run the tasks in parallel
+        with Pool() as pool:
+            results = pool.starmap(evaluate_mixture, tasks)
+    else:
+        # Run the tasks sequentially
+        results = [evaluate_mixture(*task) for task in tasks]
+
+    # Collect the results
+    for idx, n_components in enumerate(n_component_list):
+        ll_train_splits = []
+        ll_test_splits = []
+        for i in range(n_splits):
+            _, _, _, _, ll_train, ll_test = results[idx * n_splits + i]
+            ll_train_splits.append(ll_train)
+            ll_test_splits.append(ll_test)
+        ll_train_list.append(np.mean(ll_train_splits))
+        ll_test_list.append(np.mean(ll_test_splits))
+
+    # Store results in CSV
+    df_results = pd.DataFrame({'n_components': n_component_list, 'LL_train': ll_train_list, 'LL_test': ll_test_list})
+    df_results.to_csv(os.path.join(output_path, 'gmm_results_cv.csv'), index=False)
+
+    # Plot metrics
+    plot_metric_list(n_component_list, [ll_train_list], [ll_test_list], ['Log-likelihood'], output_path, [f'results_LL_cv_{n_splits}'])
 
 def plot_metric_list(n_component_list, metric_train_list, metric_test_list, metric_name_list, output_path, file_names):
     # for each metric plot train and test in same plot
@@ -474,8 +534,10 @@ def main():
 # second version of the main function for Gaussian Mixture
 def main_v2():
     print('Running main_v2')
-    folder_name = 'complete_data/gaussian_mixture_full'
+    # folder_name = 'complete_data/gaussian_mixture_full'
+    folder_name = 'resample'
     complete = True
+    resample = True
 
     # output path (create if it doesn't exist)
     output_path = os.path.join(os.getcwd(), 'output', folder_name)
@@ -491,8 +553,15 @@ def main_v2():
     # trait_path = os.path.join(os.getcwd(), 'data', 'traits_obs_log.csv')
 
     df_trait = pd.read_csv(trait_path, index_col=0)
+    df_errors = pd.read_csv('data/pred_errors.csv', index_col=0)
     trait_labels = df_trait.columns
     species_labels = df_trait.index
+
+    # resample df_trait
+    if resample:
+        df_trait = np.random.normal(df_trait.values, df_errors.values[:,0])
+        # back to dataframe
+        df_trait = pd.DataFrame(df_trait, columns=trait_labels, index=species_labels)
 
     # impute missing values
     if not complete:
@@ -512,9 +581,9 @@ def main_v2():
     # exit()
 
     ### TRIAL ###
-    K = 400
+    K = 40
     model = GaussianMixture(n_components=K, covariance_type='full', max_iter=1000,
-                            n_init=1, random_state=42)
+                            n_init=10, random_state=42, verbose=1)
     model.fit(df_trait)
 
     # some things we can compute
@@ -583,15 +652,39 @@ def main_v2():
 
 if __name__ == '__main__':
     main_v2()
-    # read data
-    # folder_name = 'complete_data/gaussian_mixture_full'
-    # output_path = os.path.join(os.getcwd(), 'output', folder_name)
+    exit()
 
-    # df_trait = pd.read_csv('data/traits_pred_log.csv', index_col=0)
+    resample = True
+
+    # read data
+    folder_name = 'resample'
+    output_path = os.path.join(os.getcwd(), 'output', folder_name)
+
+    df_trait = pd.read_csv('data/traits_pred_log.csv', index_col=0)
+    df_errors = pd.read_csv('data/pred_errors.csv', index_col=0)
+    trait_labels = df_trait.columns
+    species_labels = df_trait.index
+
+    # resample df_trait
+    if resample:
+        # print(df_errors.values[:,0])
+        df_trait = np.random.normal(df_trait.values, df_errors.values[:,0])
+        # back to dataframe
+        df_trait = pd.DataFrame(df_trait, columns=trait_labels, index=species_labels)
+        
 
     # n_component_list = [i for i in range(25,1025, 25)]
-    # print('Running Gaussian Mixture')
-    # run_mixtures(df_trait, output_path, n_component_list, cov_type='full', parallel=True, verbose=True)
+    # n_component_list = [1,2,5,10,50] + [i for i in range(100, 2100, 100)]
+    # n_component_list = [2,5,10]
+    # n_component_list = [10,20,30,40,50,100,150,250,300,350,400,450,
+    #                     500,600,700,800,900,1000,1250,1500,2000]
+    n_component_list = [i+1 for i in range(20)] + [2*i for i in range(11, 51)]
+    print('Components to try')
+    print(n_component_list)  
+    print('Running Gaussian Mixture')
+    run_mixtures(df_trait, output_path, n_component_list, cov_type='full', parallel=True, verbose=True)
+   
+    # cross_validate_gmm(df_trait, n_component_list, output_path, n_splits=5, cov_type='full', verbose=True)
 
     # df_trait_sample = df_trait.sample(frac=0.5, random_state=42)
 
