@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Define directories
-cluster_script="code/cluster_labels.py"  # Update this path
-consensus_script="code/consensus_matrix.py"  # Path to consensus matrix script
-analyse_script="code/analyse_consensus.py"  # Path to analyse consensus script
+cluster_script="code/cluster_pipeline/step1_cluster_labels.py"  # Update this path
+consensus_script="code/cluster_pipeline/step2_consensus_matrix.py"  # Path to consensus matrix script
+analyse_script="code/cluster_pipeline/step3_analyse_consensus.py"  # Path to analyse consensus script
 
 # Define method and number of components for GMM
 method="hdbscan"  # Options: 'hdbscan' or 'gmm'

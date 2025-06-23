@@ -19,7 +19,7 @@ from scipy.stats import ks_2samp
 
 import os
 # from Bio import Phylo
-from analyse_consensus import compute_distance_matrix, hierarchical_clustering
+from src.cluster_pipeline.step1_analyse_consensus import compute_distance_matrix, hierarchical_clustering
 from multiprocessing import Pool
 
 import sys
