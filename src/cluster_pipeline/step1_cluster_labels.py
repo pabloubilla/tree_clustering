@@ -187,7 +187,7 @@ def plot_results(X, labels, output_path, seed, plot_method='PCA'):
 def main(random_seed, method, error_weight = 1.0, n_components=5, plot=True, random_assign = True, scale = True):
     np.random.seed(random_seed)
     verbose = True
-    small_data, subset_size = True, 120
+    small_data, subset_size = True, 100
     two_traits = False
     trait_list = ['Wood density', 'Leaf area']
     n_assign = 10

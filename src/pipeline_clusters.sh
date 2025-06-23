@@ -1,18 +1,18 @@
 #!/bin/bash
 
 # Define directories
-cluster_script="code/cluster_pipeline/step1_cluster_labels.py"  # Update this path
-consensus_script="code/cluster_pipeline/step2_consensus_matrix.py"  # Path to consensus matrix script
-analyse_script="code/cluster_pipeline/step3_analyse_consensus.py"  # Path to analyse consensus script
+cluster_script="src/cluster_pipeline/step1_cluster_labels.py"  # Update this path
+consensus_script="src/cluster_pipeline/step2_consensus_matrix.py"  # Path to consensus matrix script
+analyse_script="src/cluster_pipeline/step3_analyse_consensus.py"  # Path to analyse consensus script
 
 # Define method and number of components for GMM
-method="hdbscan"  # Options: 'hdbscan' or 'gmm'
+method="gmm"  # Options: 'hdbscan' or 'gmm'
 # components=20  # Specify number of components if using GMM
 # rnd="_rnd" # If using rnd assignation
 rnd=""
-scl=""
+scl="_scl"
 random_assign="False"
-scale="False"
+scale="True"
 
 # Set the number of threads for MKL, OpenBLAS, and OMP (used by NumPy, SciPy)
 export MKL_NUM_THREADS=1
@@ -28,8 +28,8 @@ for error_weight in "${error_weights[@]}"; do
     method_with_error="${method}_error${error_weight}"
 
     # Run the clustering script for each seed in parallel
-    for seed in {1..50}; do
-        /home/pablo/.venv/bin/python3 "$cluster_script" --seed "$seed" --method "$method" --random_assign "$random_assign" --scale "$scale" &
+    for seed in {1..3}; do
+        python "$cluster_script" --seed "$seed" --method "$method" --random_assign "$random_assign" --scale "$scale" &
     done
 
     # Wait for all background jobs to finish
@@ -37,11 +37,11 @@ for error_weight in "${error_weights[@]}"; do
     echo "All clustering processes have completed for error_weight=${error_weight}."
 
     # Run consensus matrix script
-    /home/pablo/.venv/bin/python3 "$consensus_script" --method "$method_with_error""$rnd""$scl"
+    python "$consensus_script" --method "$method_with_error""$rnd""$scl"
     echo "Consensus matrix computation completed for error_weight=${error_weight}."
 
     # Run analyse consensus script
-    /home/pablo/.venv/bin/python3 "$analyse_script" "$method_with_error""$rnd""$scl" 20
+    python "$analyse_script" "$method_with_error""$rnd""$scl" 20
     echo "Analysis of consensus matrix completed for error_weight=${error_weight}."
 done
 

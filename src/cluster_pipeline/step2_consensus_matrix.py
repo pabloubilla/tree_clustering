@@ -99,7 +99,7 @@ def main():
     
     method = args.method
     # consensus_data = 'Wood density_Leaf area'
-    consensus_data = 'full_data'
+    consensus_data = 'small_100'
     output_dir = os.path.join('output', 'consensus', method, consensus_data)
     image_dir = os.path.join(output_dir, 'images')
     os.makedirs(image_dir, exist_ok=True)

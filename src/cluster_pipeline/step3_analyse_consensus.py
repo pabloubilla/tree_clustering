@@ -360,14 +360,15 @@ def main():
     else:
         n_jobs = 1
     
-    consensus_data = 'full_data'
+    consensus_data = 'small_100'
     # consensus_data = 'Wood density_Leaf area'
     output_dir = os.path.join('output', 'consensus', method, consensus_data)
     images_dir = os.path.join(output_dir, 'images')
 
     # clusters to try
     # n_cluster_list = [i*5 for i in range(1,21)]
-    n_cluster_list = [i for i in range(2,120)]
+    # n_cluster_list = [i for i in range(2,120)]
+    n_cluster_list = [2,3,4,5]
     # n_cluster_list = [i for i in [100,200,300,400,500]]
     # n_cluster_list = [2,3,4,5,6]
     
@@ -411,7 +412,8 @@ def main():
     print(summary_consensus_matrix)
    
     sorted = False
-    plot_summary_heatmap(summary_consensus_matrix, cluster_sizes, os.path.join(images_dir, f'heatmap_G{best_num_clusters}_summary{sorted*'sorted'}.pdf'), sorted = False)
+    sorted_string = 'sorted' if sorted else ''
+    plot_summary_heatmap(summary_consensus_matrix, cluster_sizes, os.path.join(images_dir, f'heatmap_G{best_num_clusters}_summary{sorted_string}.pdf'), sorted = False)
     plot_summary_heatmap_w_squares(summary_consensus_matrix, cluster_sizes, os.path.join(images_dir, f'heatmap_G{best_num_clusters}_squares.pdf'), sorted = False)
 
     # Save cluster information to a dataframe

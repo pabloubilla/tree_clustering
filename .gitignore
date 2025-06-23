@@ -7,7 +7,7 @@
 /server
 
 output/consensus/*
-!output/consensus/gmm_error1.0_rnd_scl/small_120
+#!output/consensus/gmm_error1.0_scl/small_100
 output/spatial_analysis
 
 
