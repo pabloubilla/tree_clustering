@@ -8,7 +8,8 @@
 
 output/consensus/*
 !output/consensus/gmm_error1.0_rnd_scl/small_120
-output/spatial_analysis/sites_cluster.csv
+output/spatial_analysis
+
 
 /output_old
 /notes
