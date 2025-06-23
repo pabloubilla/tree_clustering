@@ -26,7 +26,7 @@ The full clustering pipeline is executed using a bash script (`run_clustering.sh
 
 1. Runs clustering across multiple seeds and saves labels.
 2. Computes a consensus matrix from the results.
-3. Uses hierarchical clustering and silhouette score to determine the optimal aggregation
+3. Uses hierarchical clustering and silhouette score to determine the optimal aggregation.
 
 To execute the pipeline, run:
 
