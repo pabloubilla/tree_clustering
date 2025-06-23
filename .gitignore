@@ -3,9 +3,19 @@
 /.vscode
 /abstract
 /missing-data
-/data
+
 /server
-/output
+/output/gmm_error1.0
+/output/gmm_error1.0_rnd
+/output/hdbscan_error0.0
+/output/hdbscan_error1.0
+/output/hdbscan_error1.0_rnd
+/output/hdbscan_error1.0_scl
+
+output/gmm_error1.0_scl/full_data/consensus_matrix.parquet
+
+output/spatial_analysis
+
 /output_old
 /notes
 notes/09-05-2024.md
@@ -14,3 +24,6 @@ vnc.txt
 /diagram
 /archive
 
+# data
+data/phylogenetic_distance_matrix_BGCI_full.arrow
+data/Estimated_trait_table_with_monos.csv
