@@ -1,0 +1,1643 @@
+cluster_labels.py
+
+import argparse
+import os
+import pickle
+import numpy as np
+import pandas as pd
+
+# clustering
+import hdbscan
+from sklearn.mixture import GaussianMixture
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+
+# plot
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# for Parallel computation
+from joblib import Parallel, delayed
+
+def fit_hdbscan(X):
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=10)
+    clusterer.fit(X)
+    return clusterer.labels_
+
+def fit_gmm(X, n_components):
+    gmm = GaussianMixture(n_components=n_components, random_state=42)
+    gmm.fit(X)
+    return gmm.predict(X)
+
+def assign_random_labels(gmm, X):
+    probabilities = gmm.predict_proba(X)
+    labels = np.array([np.random.choice(gmm.n_components, p=prob) for prob in probabilities])
+    return labels
+
+# def find_best_gmm(X, components_list):
+#     best_gmm = None
+#     best_bic = np.inf
+#     best_n_components = 0
+
+#     for n in components_list:
+#         gmm = GaussianMixture(n_components=n, random_state=42)
+#         gmm.fit(X)
+#         bic = gmm.bic(X)
+#         if bic < best_bic:
+#             best_bic = bic
+#             best_gmm = gmm
+#             best_n_components = n
+
+#     return best_gmm, best_n_components, best_bic
+def find_best_gmm(X, components_list, n_jobs=1):
+    """
+    Find the best Gaussian Mixture Model (GMM) based on BIC score.
+    
+    Parameters:
+    X (ndarray): The input data.
+    components_list (list): List of number of components to evaluate.
+    n_jobs (int): Number of parallel jobs (default is 1).
+    
+    Returns:
+    best_gmm: The best fitted GMM model.
+    best_n_components: The number of components for the best GMM.
+    best_bic: The BIC score of the best GMM.
+    """
+    
+    def fit_gmm(n):
+        gmm = GaussianMixture(n_components=n, random_state=42)
+        gmm.fit(X)
+        bic = gmm.bic(X)
+        return gmm, n, bic
+    
+    if n_jobs == 1:
+        # Sequential computation
+        results = [fit_gmm(n) for n in components_list]
+    else:
+        # Parallel computation
+        pass
+        # this needs fix for running with sh
+        # results = Parallel(n_jobs=n_jobs)(delayed(fit_gmm)(n) for n in components_list)
+    
+    # Find the best result based on BIC
+    best_gmm, best_n_components, best_bic = min(results, key=lambda x: x[2])
+    
+    return best_gmm, best_n_components, best_bic
+
+
+
+def find_best_gmm_iterative(X, start_components):
+    def compute_bic(n):
+        gmm = GaussianMixture(n_components=n, random_state=42)
+        gmm.fit(X)
+        return gmm.bic(X)
+
+    best_bic = compute_bic(start_components)
+    best_n_components = start_components
+
+    # Search upwards
+    n = start_components + 1
+    while True:
+        bic = compute_bic(n)
+        if bic < best_bic:
+            best_bic = bic
+            best_n_components = n
+            n += 1
+        else:
+            break
+
+    # Search downwards
+    n = start_components - 1
+    while n > 0:
+        bic = compute_bic(n)
+        if bic < best_bic:
+            best_bic = bic
+            best_n_components = n
+            n -= 1
+        else:
+            break
+
+    best_gmm = GaussianMixture(n_components=best_n_components, random_state=42)
+    best_gmm.fit(X)
+    
+    return best_gmm, best_n_components, best_bic
+
+def create_custom_palette(n_colors):
+    # Create a custom palette with a mix of pastel, dark, and neutral colors
+    palette = sns.color_palette("husl", n_colors=n_colors//3) + \
+              sns.color_palette("dark", n_colors=n_colors//3) + \
+              sns.color_palette("pastel", n_colors=n_colors//3)
+    return palette
+
+def plot_results(X, labels, output_path, seed, plot_method='PCA'):
+    os.makedirs(output_path, exist_ok=True)
+    
+    # Define a categorical palette with many different colors
+    num_classes = len(set(labels))
+    # if plot_method == 'traits': ## This should probably be adjusted in a way to consider small aggregations
+    #     palette = sns.color_palette("husl", num_classes)  # Adjusting to use only the number of unique classes
+    # else:
+    palette = create_custom_palette(n_colors=num_classes)  # Using a custom palette for PCA and t-SNE
+    # palette = create_custom_palette(n_colors=3)
+
+    # Define markers for variety in the scatter plot
+    markers = ['o', 's', 'D']
+
+    if plot_method == 'PCA':
+        reducer = PCA(n_components=2)
+        X_reduced = reducer.fit_transform(X)
+        x_label = 'PCA Component 1'
+        y_label = 'PCA Component 2'
+    elif plot_method == 't-SNE':
+        reducer = TSNE(n_components=2, random_state=42)
+        X_reduced = reducer.fit_transform(X)
+        x_label = 't-SNE Component 1'
+        y_label = 't-SNE Component 2'
+    elif plot_method == 'traits':
+        X_reduced = X.copy().values
+        x_label = X.columns[0]
+        y_label = X.columns[1]
+
+    plt.figure(figsize=(10, 8))
+    sns.scatterplot(x=X_reduced[:, 0], y=X_reduced[:, 1], hue=labels, palette=palette, legend=None, s=10,
+                    markers=markers)
+    plt.title(f'Iteration {seed}')
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+
+    # Add a text box with the number of clusters
+    num_clusters = len(set(labels))
+    plt.text(0.9, 0.9, f'$G={num_clusters}$', horizontalalignment='right', verticalalignment='top', 
+             transform=plt.gca().transAxes, 
+             bbox=dict(facecolor='grey', alpha=0.5, boxstyle='round,pad=0.5'))
+    plt.savefig(os.path.join(output_path, f'{seed}_{plot_method}.png'))
+    plt.close()
+
+
+def main(random_seed, method, error_weight, n_components=5, plot=True):
+    np.random.seed(random_seed)
+    verbose = True
+    small_data, subset_size = False, 120
+    two_traits = False
+    trait_list = ['Wood density', 'Leaf area']
+    random_assign, n_assign = True, 10
+    component_list = [28 + 2*i for i in range(10)]
+    # component_list = [1]
+
+    working_dir = os.getcwd()
+    data_dir = os.path.join(working_dir, 'data')
+    method_label = f'{method}_error{error_weight}'
+    method_label += '_rnd'*random_assign
+    base_output_path = os.path.join(working_dir, 'output', 'consensus', method_label)
+
+    os.makedirs(base_output_path, exist_ok=True)
+    if small_data:
+        output_path = os.path.join(base_output_path, f'small_{subset_size}')
+    elif two_traits:
+        output_path = os.path.join(base_output_path, trait_list[0] + '_' +  trait_list[1])
+    else:
+        output_path = os.path.join(base_output_path, 'full_data')
+    os.makedirs(output_path, exist_ok=True)
+
+    # Create plotting subfolder
+    plot_output_path = os.path.join(output_path, 'plots')
+    os.makedirs(plot_output_path, exist_ok=True)
+
+    # Load the data
+    df_traits_pred = pd.read_csv(os.path.join(data_dir, 'traits_pred_log.csv'), index_col=0)
+    df_traits_obs = pd.read_csv(os.path.join(data_dir, 'traits_obs_log.csv'), index_col=0)
+    if two_traits:
+        df_traits_pred = df_traits_pred[trait_list]
+        df_traits_obs = df_traits_obs[trait_list]
+    observed_traits = df_traits_obs.columns
+
+    error_dic = pickle.load(open(os.path.join(data_dir, 'error_pred_dist.pkl'), 'rb'))
+
+    if small_data:
+        index_list = df_traits_pred.index[:subset_size]
+        df_traits_pred = df_traits_pred.loc[index_list,:]
+    N_obs = df_traits_pred.shape[0]
+
+    gymnosperm = pd.read_csv(os.path.join(data_dir, 'gymnosperms.csv'), index_col=0)['accepted_bin'].values
+    angiosperm = pd.read_csv(os.path.join(data_dir, 'angiosperms.csv'), index_col=0)['accepted_bin'].values
+    gymnosperm = np.intersect1d(gymnosperm, df_traits_pred.index)
+    angiosperm = np.intersect1d(angiosperm, df_traits_pred.index)
+    N_gymnosperm = gymnosperm.shape[0]
+    N_angiosperm = angiosperm.shape[0]
+
+    X_s = pd.DataFrame(np.ones(df_traits_pred.shape) * np.nan, columns=df_traits_pred.columns, index=df_traits_pred.index)
+
+    for trait in df_traits_pred.columns:
+        sampled_error_gym = np.random.choice(error_dic['gymnosperm'][trait], N_gymnosperm, replace=True) * error_weight
+        X_s.loc[gymnosperm, trait] = df_traits_pred.loc[gymnosperm, trait] + sampled_error_gym
+
+        sampled_error_ang = np.random.choice(error_dic['angiosperm'][trait], N_angiosperm, replace=True) * error_weight
+        X_s.loc[angiosperm, trait] = df_traits_pred.loc[angiosperm, trait] + sampled_error_ang
+
+        if trait in observed_traits:
+            complete_index = np.intersect1d(df_traits_obs[trait].dropna().index, df_traits_pred.index)
+            X_s.loc[complete_index, trait] = df_traits_pred.loc[complete_index, trait]
+
+    if method == 'hdbscan':
+        labels = fit_hdbscan(X_s)
+        # Save labels to a CSV file named by the seed
+        pd.Series(labels).to_csv(os.path.join(output_path, f'labels_seed_{random_seed}.csv'), index=False)
+    elif method == 'gmm':
+        gmm, n_components, bic = find_best_gmm(X_s, component_list)
+        print('N components: ', n_components)
+        if random_assign:
+            for asg in range(n_assign):
+                labels = assign_random_labels(gmm, X_s)
+                # Save labels to a CSV file named by the seed
+                pd.Series(labels).to_csv(os.path.join(output_path, f'labels_seed_{random_seed}_{asg}.csv'), index=False)
+
+        else:
+            labels = gmm.predict(X_s)
+            # Save labels to a CSV file named by the seed
+            pd.Series(labels).to_csv(os.path.join(output_path, f'labels_seed_{random_seed}.csv'), index=False)
+
+    # Plotting
+    if plot:
+        
+        plot_results(X_s, labels, plot_output_path, random_seed, 'PCA')
+        plot_results(X_s, labels, plot_output_path, random_seed, 't-SNE')
+        if two_traits:
+            plot_results(X_s, labels, plot_output_path, random_seed, 'traits')
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Run clustering with a specified seed and method.')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for bootstrapping.')
+    parser.add_argument('--method', type=str, default='gmm', choices=['hdbscan', 'gmm'], help='Clustering method to use.')
+    parser.add_argument('--error_weight', type=float, default=1.0, help='Error weight for sampling.')
+    parser.add_argument('--components', type=int, default=30, help='Number of components for GMM.')
+    parser.add_argument('--plot', type=bool, default=False, help='Plot the results using PCA and t-SNE.')
+    args = parser.parse_args()
+
+    main(args.seed, args.method, args.error_weight, args.components, args.plot)
+
+
+
+
+
+# import argparse
+# import numpy as np
+# import pandas as pd
+# import hdbscan
+# from sklearn.mixture import GaussianMixture
+# import os
+# import pickle
+
+# def fit_hdbscan(X):
+#     clusterer = hdbscan.HDBSCAN(min_cluster_size=10)
+#     clusterer.fit(X)
+#     return clusterer.labels_
+
+# def fit_gmm(X, n_components):
+#     gmm = GaussianMixture(n_components=n_components, random_state=42)
+#     gmm.fit(X)
+#     return gmm.predict(X)
+
+# def find_best_gmm(X, components_list):
+#     best_gmm = None
+#     best_bic = np.inf
+#     best_n_components = 0
+
+#     for n in components_list:
+#         gmm = GaussianMixture(n_components=n, random_state=42)
+#         gmm.fit(X)
+#         bic = gmm.bic(X)
+#         if bic < best_bic:
+#             best_bic = bic
+#             best_gmm = gmm
+#             best_n_components = n
+
+#     return best_gmm, best_n_components, best_bic
+
+
+# def find_best_gmm_iterative(X, start_components):
+#     ### Look iteratively
+#     def compute_bic(n):
+#         gmm = GaussianMixture(n_components=n, random_state=42)
+#         gmm.fit(X)
+#         return gmm.bic(X)
+
+#     best_bic = compute_bic(start_components)
+#     best_n_components = start_components
+
+#     # Search upwards
+#     n = start_components + 1
+#     while True:
+#         bic = compute_bic(n)
+#         if bic < best_bic:
+#             best_bic = bic
+#             best_n_components = n
+#             n += 1
+#         else:
+#             break
+
+#     # Search downwards
+#     n = start_components - 1
+#     while n > 0:
+#         bic = compute_bic(n)
+#         if bic < best_bic:
+#             best_bic = bic
+#             best_n_components = n
+#             n -= 1
+#         else:
+#             break
+
+#     best_gmm = GaussianMixture(n_components=best_n_components, random_state=42)
+#     best_gmm.fit(X)
+    
+#     return best_gmm, best_n_components, best_bic
+
+
+
+# def main(random_seed, method, error_weight, n_components=5):
+#     np.random.seed(random_seed)
+#     verbose = True
+#     small_data, subset_size = False, 120
+#     # component_list = [10,20,30,40,50,60]
+#     component_list = [28 + 2*i for i in range(10)]
+
+#     working_dir = os.getcwd()
+#     data_dir = os.path.join(working_dir, 'data')
+#     # method label with error weight
+#     method_label = f'{method}_error{error_weight}'
+#     # if error_weight < 1:
+#     #     method_label = f'{method}_error{error_weight}'
+#     # else: 
+#     #     method_label = method
+#     base_output_path = os.path.join(working_dir, 'output', 'consensus', method_label)
+
+#     # Create method specific output path
+#     # if not os.path.exists(base_output_path):
+#     os.makedirs(base_output_path, exist_ok=True)
+#     if small_data:
+#         output_path = os.path.join(base_output_path, f'small_{subset_size}')
+#     else:
+#         output_path = os.path.join(base_output_path, 'full_data')
+#     # if not os.path.exists(output_path):
+#     os.makedirs(output_path, exist_ok=True)
+
+#     # Load the data
+#     df_traits_pred = pd.read_csv(os.path.join(data_dir, 'traits_pred_log.csv'), index_col=0)
+#     df_traits_obs = pd.read_csv(os.path.join(data_dir, 'traits_obs_log.csv'), index_col=0)
+#     observed_traits = df_traits_obs.columns
+
+#     ### Load the error distribution ###
+#     error_dic = pickle.load(open(os.path.join(data_dir, 'error_pred_dist.pkl'), 'rb'))
+
+#     if small_data:
+#         index_list = df_traits_pred.index[:subset_size]
+#         df_traits_pred = df_traits_pred.loc[index_list,:]
+#     N_obs = df_traits_pred.shape[0]
+
+#     ### Load the gymnosperm and angiosperm data ###
+#     gymnosperm = pd.read_csv(os.path.join(data_dir, 'gymnosperms.csv'), index_col=0)['accepted_bin'].values
+#     angiosperm = pd.read_csv(os.path.join(data_dir, 'angiosperms.csv'), index_col=0)['accepted_bin'].values
+#     gymnosperm = np.intersect1d(gymnosperm, df_traits_pred.index)
+#     angiosperm = np.intersect1d(angiosperm, df_traits_pred.index)
+#     N_gymnosperm = gymnosperm.shape[0]
+#     N_angiosperm = angiosperm.shape[0]
+
+#     X_s = pd.DataFrame(np.ones(df_traits_pred.shape) * np.nan, columns=df_traits_pred.columns, index=df_traits_pred.index)
+
+#     for trait in df_traits_pred.columns:
+#         sampled_error_gym = np.random.choice(error_dic['gymnosperm'][trait], N_gymnosperm, replace=True)*error_weight
+#         X_s.loc[gymnosperm, trait] = df_traits_pred.loc[gymnosperm, trait] + sampled_error_gym
+
+#         sampled_error_ang = np.random.choice(error_dic['angiosperm'][trait], N_angiosperm, replace=True)*error_weight
+#         X_s.loc[angiosperm, trait] = df_traits_pred.loc[angiosperm, trait] + sampled_error_ang
+
+#         if trait in observed_traits:
+#             complete_index = np.intersect1d(df_traits_obs[trait].dropna().index, df_traits_pred.index)
+#             X_s.loc[complete_index, trait] = df_traits_pred.loc[complete_index, trait]
+
+#     if method == 'hdbscan':
+#         labels = fit_hdbscan(X_s)
+#     elif method == 'gmm':
+#         # labels = fit_gmm(X_s, n_components)
+#         gmm, n_components, bic = find_best_gmm(X_s, component_list)
+#         # gmm2, n_components2, bic2 = find_best_gmm_iterative(X_s, 35)
+#         labels = gmm.predict(X_s)
+#         print('N components: ', n_components)
+#         # print('N iterateive: ', n_components2)
+
+#     # Save labels to a CSV file named by the seed
+#     pd.Series(labels).to_csv(os.path.join(output_path, f'labels_seed_{random_seed}.csv'), index=False)
+
+# ### check this code runs right in shell, check if both methods need different ways of computing the final consensus matrix
+# ### keep the number of samples somehow
+# if __name__ == '__main__':
+#     parser = argparse.ArgumentParser(description='Run clustering with a specified seed and method.')
+#     parser.add_argument('--seed', type=int, default=42, help='Random seed for bootstrapping.')
+#     parser.add_argument('--method', type=str, default='hdbscan', choices=['hdbscan', 'gmm'], help='Clustering method to use.')
+#     parser.add_argument('--error_weight', type=float, default=1, help='Clustering method to use.')
+#     parser.add_argument('--components', type=int, default=30, help='Number of components for GMM.')
+#     args = parser.parse_args()
+
+#     main(args.seed, args.method, args.error_weight, args.components)
+
+
+
+consensus_matrix.py
+
+import pandas as pd
+import os
+import re
+import numpy as np
+import timeit
+import pyarrow as pa
+import pyarrow.parquet as pq
+import matplotlib.pyplot as plt
+import seaborn as sns
+import glob
+import argparse
+
+def same_cluster_matrix(consensus_matrix, labels):
+    # Create an n x n boolean matrix where each element (i, j) is True if labels[i] == labels[j]
+    label_matrix = labels[:, None] == labels[None, :]
+    # Use the boolean matrix to increment the consensus matrix
+    consensus_matrix += label_matrix
+
+def check_if_first(filename):
+    # Define a regex pattern to extract the Y value from the filename
+    pattern = re.compile(r'labels_seed_\d+_(\d+)\.csv')
+    
+    match = pattern.search(filename)
+    if match:
+        y_value = int(match.group(1))
+        return y_value == 0
+    else:
+        return False
+
+def process_files(files):
+    N_files = len(files)
+    
+    # read the first file to get the number of observations
+    df = pd.read_csv(files[0], index_col=0)
+    N_obs = df.shape[0]
+    # initialize the consensus matrix
+    consensus_matrix = np.zeros((N_obs, N_obs))
+    
+    for file in files:
+        print(f'Running file {file}')
+        # read the labels
+        labels = pd.read_csv(file).iloc[:, 0].values
+        # change -1 to nan
+        labels = np.where(labels == -1, np.nan, labels)
+        # add to the consensus matrix
+        same_cluster_matrix(consensus_matrix, labels)
+    
+    consensus_matrix /= N_files  # take average
+    return consensus_matrix
+
+def generate_G_list(files):
+    G_list = []
+    for file in files:
+        print(f'Checking file {file}')
+        # read the labels
+        labels = pd.read_csv(file).iloc[:, 0].values
+        # change -1 to nan
+        labels = np.where(labels == -1, np.nan, labels)
+        if check_if_first(file):
+            print(file, '>>>>>>>>> IT IS FIRST')
+            # add number of clusters
+            G_list.append(len(set(labels)))
+    return G_list
+
+def save_matrix_as_parquet(matrix, output_dir):
+    df_matrix = pd.DataFrame(matrix)
+    table = pa.Table.from_pandas(df_matrix)
+    pq.write_table(table, os.path.join(output_dir, 'consensus_matrix.parquet'))
+
+def plot_G_distribution(G_list, output_file):
+    # Convert G_list to a pandas Series
+    G_series = pd.Series(G_list)
+    
+    # plot distribution of G with histogram
+    plt.figure(figsize=(8, 6))
+    sns.histplot(G_series, bins=len(G_series.unique()), discrete=True, color='skyblue')
+    
+    # x axis
+    plt.xlabel('$G^*$')
+    plt.xticks(ticks=sorted(G_series.unique()))  # Set x-ticks to be the unique values in G_list
+    
+    # y axis
+    plt.ylabel('Frequency')
+    
+    # Save the figure
+    plt.savefig(output_file)
+
+    # Show the plot (optional)
+    plt.show()
+
+def main():
+    parser = argparse.ArgumentParser(description="Process and generate consensus matrix and G distribution.")
+    parser.add_argument('--method', type=str, default='gmm_error1.0_rnd', help='Method name for processing')
+    args = parser.parse_args()
+    
+    method = args.method
+    # consensus_data = 'Wood density_Leaf area'
+    consensus_data = 'full_data'
+    output_dir = os.path.join('output', 'consensus', method, consensus_data)
+    image_dir = os.path.join(output_dir, 'images')
+    os.makedirs(image_dir, exist_ok=True)
+    print('Output dir: ', output_dir)
+    files = glob.glob(os.path.join(output_dir, 'labels_*'))
+    N_files = len(files)
+    print(f'Identified {N_files} files')
+
+    # process the files and update the consensus matrix
+    # t_start = timeit.default_timer()
+    # consensus_matrix = process_files(files)
+    # t_end = timeit.default_timer()
+    # print('Time taken to run the consensus matrix processing: ')
+    # print(t_end - t_start)
+
+    # generate G list
+    t_start = timeit.default_timer()
+    G_list = generate_G_list(files)
+    t_end = timeit.default_timer()
+    print('Time taken to generate G_list: ')
+    print(t_end - t_start)
+
+    # plot G distribution
+    plot_G_distribution(G_list, os.path.join(image_dir, f'G_dist_{len(G_list)}.pdf'))
+    exit()
+
+    # save the consensus matrix as parquet
+    t_start = timeit.default_timer()
+    save_matrix_as_parquet(consensus_matrix, output_dir)
+    t_end = timeit.default_timer()
+    print('Time to save as Parquet (Arrow): ', t_end - t_start)
+
+if __name__ == '__main__':
+    main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+####### OLD CODE #####
+# import pandas as pd
+# import os
+# import re
+# import numpy as np
+# import timeit
+# import pyarrow as pa
+# import pyarrow.parquet as pq
+# import matplotlib.pyplot as plt
+# import seaborn as sns
+# import glob
+# import sys
+
+# def same_cluster_matrix(consensus_matrix, labels):
+#     # Create an n x n boolean matrix where each element (i, j) is True if labels[i] == labels[j]
+#     label_matrix = labels[:, None] == labels[None, :]
+#     # Use the boolean matrix to increment the consensus matrix
+#     consensus_matrix += label_matrix
+
+# def check_if_first(filename):
+#     # Define a regex pattern to extract the Y value from the filename
+#     pattern = re.compile(r'labels_seed_\d+_(\d+)\.csv')
+    
+#     match = pattern.search(filename)
+#     if match:
+#         y_value = int(match.group(1))
+#         return y_value == 0
+#     else:
+#         return False
+
+# def process_files(files, consensus_matrix):
+#     N_files = len(files)
+#     G_list = []
+#     for file in files:
+#         print(f'Running file {file}')
+#         # read the labels
+#         labels = pd.read_csv(file).iloc[:, 0].values
+#         # change -1 to nan
+#         labels = np.where(labels == -1, np.nan, labels)
+#         # add to the consensus matrix
+#         same_cluster_matrix(consensus_matrix, labels)
+#         if check_if_first(file):
+#             print(file, '>>>>>>>>> IT IS FIRST')
+#             # add number of clusters
+#             G_list.append(len(set(labels)))
+#     consensus_matrix /= N_files  # take average
+#     return consensus_matrix, G_list
+
+# def save_matrix_as_parquet(matrix, output_dir):
+#     df_matrix = pd.DataFrame(matrix)
+#     table = pa.Table.from_pandas(df_matrix)
+#     pq.write_table(table, os.path.join(output_dir, 'consensus_matrix.parquet'))
+
+# def plot_G_distribution(G_list, output_dir):
+#     # plot distribution of G
+#     plt.figure(figsize=(8, 6))
+#     sns.histplot(G_list, color='skyblue', kde=False)
+#     # x axis
+#     plt.xlabel('$G$*')
+#     # y axis
+#     plt.ylabel('Frequency')
+#     # savefig
+#     plt.savefig(output_dir)
+
+# def main():
+#     if len(sys.argv) != 2:
+#         print("Usage: python script.py <method>")
+#         sys.exit(1)
+    
+#     method = sys.argv[1]
+#     # consensus_data = 'Wood density_Leaf area'
+#     consensus_data = 'full_data'
+#     output_dir = os.path.join('output', 'consensus', method, consensus_data)
+#     image_dir = os.path.join(output_dir, 'images')
+#     os.makedirs(image_dir, exist_ok=True)
+#     print('Output dir: ', output_dir)
+#     files = glob.glob(os.path.join(output_dir, 'labels_*'))
+#     N_files = len(files)
+#     print(f'Identified {N_files} files')
+
+#     # read the first file to get the number of observations
+#     df = pd.read_csv(files[0], index_col=0)
+#     N_obs = df.shape[0]
+
+#     # initialize the consensus matrix
+#     consensus_matrix = np.zeros((N_obs, N_obs))
+
+#     # process the files and update the consensus matrix
+#     t_start = timeit.default_timer()
+#     consensus_matrix, G_list = process_files(files, consensus_matrix)
+#     t_end = timeit.default_timer()
+#     print('Time taken to run the code v3: ')
+#     print(t_end - t_start)
+
+#     # plot G distribution
+#     plot_G_distribution(G_list, os.path.join(image_dir, 'G_dist.pdf'))
+
+#     # save the consensus matrix as parquet
+#     t_start = timeit.default_timer()
+#     save_matrix_as_parquet(consensus_matrix, output_dir)
+#     t_end = timeit.default_timer()
+#     print('Time to save as Parquet (Arrow): ', t_end - t_start)
+
+# if __name__ == '__main__':
+#     main()
+
+
+
+
+# def same_cluster_matrix_v1(consensus_matrix, labels, N_obs):
+#     """
+#     add to consensus matrix for this iteration
+#     """
+#     unique_labels = np.unique(labels)
+#     # iterate over unique labels
+#     for label in unique_labels:
+#         # get the indices of the label
+#         indices = np.where(labels == label)[0]
+#         # iterate over the indices
+#         for i in range(len(indices)):
+#             for j in range(i+1, len(indices)):
+#                 consensus_matrix[indices[i], indices[j]] += 1
+#                 consensus_matrix[indices[j], indices[i]] += 1
+
+
+# def same_cluster_matrix_v2(consensus_matrix, labels, n):
+#     """
+#     Compute the matrix of same cluster membership
+#     """
+#     for i in range(n):
+#         for j in range(i+1, n):
+#             if labels[i] == labels[j]:
+#                 consensus_matrix[i, j] += 1
+#                 consensus_matrix[j, i] += 1
+
+# def same_cluster_matrix_v3(consensus_matrix, labels):
+
+#     # Create an n x n boolean matrix where each element (i, j) is True if labels[i] == labels[j]
+#     label_matrix = labels[:, None] == labels[None, :]
+
+#     # Use the boolean matrix to increment the consensus matrix
+#     consensus_matrix += label_matrix
+
+
+
+# if __name__ == '__main__':
+#     method = 'hdbscan_error0.5'
+#     # output_dir
+#     output_dir = os.path.join('output', 'consensus', method, 'full_data')
+#     # read all files in the output_dir
+#     files = glob.glob(os.path.join(output_dir, 'labels_*'))
+#     N_files = len(files)
+#     print(f'Identified {N_files} files')
+
+#     # read the first file
+#     df = pd.read_csv(files[0], index_col=0)
+#     # get the number of observations
+#     N_obs = df.shape[0]
+#     # initialize the consensus matrix
+#     consensus_matrix = np.zeros((N_obs, N_obs))
+#     # iterate over the files
+
+#     # ### See version 1 ###
+#     # t_start = timeit.default_timer()
+#     # for file in files:
+#     #     # read the labels
+#     #     labels = pd.read_csv(os.path.join(output_dir, file)).iloc[:,0].values
+#     #     # add to the consensus matrix
+#     #     same_cluster_matrix_v1(consensus_matrix, labels, N_obs)
+#     # t_end = timeit.default_timer()
+#     # print('Time taken to run the code v1: ')
+#     # print(t_end - t_start)
+
+#     # ### See version 2 ###
+#     # t_start = timeit.default_timer()
+#     # for file in files:
+#     #     # read the labels
+#     #     labels = pd.read_csv(os.path.join(output_dir, file)).iloc[:,0].values
+#     #     # add to the consensus matrix
+#     #     same_cluster_matrix_v2(consensus_matrix, labels, N_obs)
+#     # t_end = timeit.default_timer()
+#     # print('Time taken to run the code v2: ')
+#     # print(t_end - t_start)
+
+#     ### See version 3 ### (FASTER)
+#     t_start = timeit.default_timer()
+#     for file in files:
+#         print(f'Running file {file}')
+#         # read the labels
+#         labels = pd.read_csv(file).iloc[:,0].values
+#         # change -1 to nan
+#         labels = np.where(labels == -1, np.nan, labels)
+#         # add to the consensus matrix
+#         same_cluster_matrix_v3(consensus_matrix, labels)
+#     consensus_matrix = consensus_matrix/N_files # take average
+#     t_end = timeit.default_timer()
+#     print('Time taken to run the code v3: ')
+#     print(t_end - t_start)
+
+#     # TRIANGLE MATRIX
+#     # upper_triangle = sp.triu(consensus_matrix, k=1)
+
+#     # ### SPARSE UPPER TRIANGLE ###
+#     # t_start = timeit.default_timer()
+#     # sparse_matrix = sp.csr_matrix(upper_triangle)
+#     # sp.save_npz(os.path.join(output_dir,'consensus_matrix_upper_sparse.npz'), sparse_matrix)
+#     # t_end = timeit.default_timer()
+#     # print('Time to save sparse (upper triangle): ', t_end - t_start)
+
+
+#     # ### ARROW UPPER TRIANGLE ###
+#     # df_upper_triangle = pd.DataFrame(upper_triangle.toarray())
+#     # t_start = timeit.default_timer()
+#     # table = pa.Table.from_pandas(df_upper_triangle)
+#     # pq.write_table(table, os.path.join(output_dir, 'consensus_matrix_upper.parquet'))
+#     # t_end = timeit.default_timer()
+#     # print('Time to save as Parquet (upper triangle): ', t_end - t_start)
+
+#     ### ARROW ### (THIS IS PROBABLY THE BEST)
+#     df_matrix = pd.DataFrame(consensus_matrix)
+#     t_start = timeit.default_timer()
+#     table = pa.Table.from_pandas(df_matrix)
+#     pq.write_table(table, os.path.join(output_dir, 'consensus_matrix.parquet'))
+#     t_end = timeit.default_timer()
+#     print('Time to save as Parquet (Arrow): ', t_end - t_start)
+
+
+#     # ### SAVE AS SPARSE ###
+#     # t_start = timeit.default_timer()
+#     # # make it sparse
+#     # sparse_matrix = sp.csr_matrix(consensus_matrix)
+#     # # Save the sparse matrix
+#     # sp.save_npz(os.path.join(output_dir,'consensus_matrix_sparse.npz'), sparse_matrix)
+#     # t_end = timeit.default_timer()
+#     # print('Time to save sparse: ', t_end - t_start)
+
+#     # ### SAVE AS NPY ###
+#     # t_start = timeit.default_timer()
+#     # # save as npy
+#     # print(f'Saving a {N_obs}x{N_obs} matrix')
+#     # np.save(os.path.join(output_dir,'consensus_matrix.npy'), consensus_matrix)
+#     # t_end = timeit.default_timer()
+#     # print('Time to save npy: ', t_end - t_start)
+
+
+#     # ### SAVE AS CSV ###
+#     # t_start = timeit.default_timer()
+#     # np.savetxt(os.path.join(output_dir, 'consensus_matrix.csv'), consensus_matrix, delimiter=',')
+#     # t_end = timeit.default_timer()
+#     # print('Time to save csv: ', t_end - t_start)
+
+
+
+
+#     # sparse: 1362 s, 4.3 Gb
+#     # sparse (upper): 544 s, 2 Gb 
+#     # npy: 159 s, 18 Gb
+#     # csv 573 s, 57 Gb
+#     # Parquet (upper): 50 s, 400 Mb
+
+
+
+
+
+
+
+analyse_consensus.py
+
+import pandas as pd
+import numpy as np
+import pyarrow as pa
+import os
+import seaborn as sns
+
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+
+from sklearn.metrics import silhouette_score
+import scipy.cluster.hierarchy as sch
+from scipy.spatial.distance import squareform
+
+from joblib import Parallel, delayed
+import sys
+
+def downsample_matrix(matrix, factor):
+    """ Downsample a matrix by averaging over factor x factor blocks """
+    new_size = matrix.shape[0] // factor, matrix.shape[1] // factor
+    downsampled = np.zeros(new_size)
+    
+    for i in range(new_size[0]):
+        for j in range(new_size[1]):
+            downsampled[i, j] = np.mean(matrix[i*factor:(i+1)*factor, j*factor:(j+1)*factor])
+    
+    return downsampled
+
+def load_consensus_matrix(output_dir):
+    """ Load consensus matrix from a parquet file """
+    return pd.read_parquet(os.path.join(output_dir, 'consensus_matrix.parquet')).values
+
+def compute_distance_matrix(consensus_matrix):
+    """ Compute the distance matrix from the consensus matrix """
+    distance_matrix = 1 - consensus_matrix
+    np.fill_diagonal(distance_matrix, 0)
+    return distance_matrix
+
+def hierarchical_clustering(distance_matrix, consensus_matrix, num_clusters):
+    """ Perform hierarchical clustering and return the clusters and ordered consensus matrix """
+    condensed_distance_matrix = squareform(distance_matrix)
+    Z = sch.linkage(condensed_distance_matrix, method='ward')
+    clusters = sch.fcluster(Z, t=num_clusters, criterion='maxclust')
+    order = np.argsort(clusters)
+    ordered_consensus_matrix = consensus_matrix[order, :][:, order]
+    return clusters, ordered_consensus_matrix
+
+def plot_heatmap(matrix, output_path, title='Heatmap'):
+    """ Plot and save heatmap of the matrix """
+    plt.figure(figsize=(8, 5))
+    ax = sns.heatmap(matrix, cmap='Reds', xticklabels=False, yticklabels=False)
+    cbar = ax.collections[0].colorbar
+    cbar.set_label('Consensus', rotation=270, labelpad=20)
+    ax.set_xlabel('Species')
+    ax.set_ylabel('Species')
+    plt.savefig(output_path)
+    plt.clf()
+
+def compute_summary_matrix(consensus_matrix, consensus_labels):
+    '''
+    Summary of consensus: avg distance between every cluster pair
+                          diagonal is avg distance inside cluster
+    '''
+
+    num_clusters = len(np.unique(consensus_labels))
+    consensus_summary_matrix = np.zeros((num_clusters, num_clusters))
+    cluster_sizes = np.zeros(num_clusters)
+
+    for c in range(1, num_clusters+1):
+        index_c = np.where(consensus_labels == c)[0]
+        cluster_size = len(index_c)
+        cluster_sizes[c-1] = cluster_size
+        matrix_c = consensus_matrix[index_c, :][:, index_c]
+        avg_consensus_c = matrix_c.sum() / (len(index_c)**2 - len(index_c))  # all except diagonal (elements repeat)
+        # print(f'Average consensus {c}: {avg_consensus_c}')
+        consensus_summary_matrix[c-1, c-1] = avg_consensus_c
+        for c_2 in range(c+1, num_clusters+1):
+            # compute average consensus between clusters
+            index_c_2 = np.where(consensus_labels == c_2)[0]
+            matrix_c1_c2 = consensus_matrix[index_c, :][:, index_c_2]
+            avg_consensus_c1_c2 = matrix_c1_c2.sum() / (len(index_c) * len(index_c_2))
+            consensus_summary_matrix[c-1, c_2-1] = avg_consensus_c1_c2
+            consensus_summary_matrix[c_2-1, c-1] = avg_consensus_c1_c2
+            # print(f'Average consensus {c}-{c_2} v2: {avg_consensus_c1_c2}')
+
+    return consensus_summary_matrix, cluster_sizes
+
+
+def plot_summary_heatmap_old(consensus_summary_matrix, cluster_sizes, output_path):
+    # Sort clusters by size
+    sorted_indices = np.argsort(-cluster_sizes)
+    sorted_matrix = consensus_summary_matrix[sorted_indices, :][:, sorted_indices]
+    sorted_cluster_sizes = cluster_sizes[sorted_indices]
+    num_clusters = len(cluster_sizes)
+
+
+    # Normalize cluster sizes to get proportions
+    total_size = sum(sorted_cluster_sizes)
+    normalized_sizes = sorted_cluster_sizes / total_size
+
+    # Create custom plot
+    fig, ax = plt.subplots(figsize=(16, 12))
+
+    min_val = 0
+    max_val = 1
+    norm = mcolors.Normalize(vmin=min_val, vmax=max_val)
+
+    current_x = 0
+    for i in range(num_clusters):
+        current_y = 0
+        for j in range(num_clusters):
+            width = normalized_sizes[i]   # Scaling factor for visual clarity
+            height = normalized_sizes[j] # Scaling factor for visual clarity
+            # print(i,j,sorted_matrix[i, j])
+            color = plt.cm.Reds(norm(sorted_matrix[i, j]))
+            rect = plt.Rectangle((current_x, current_y),
+             width, height, facecolor=color, edgecolor='black')
+            ax.add_patch(rect)
+            current_y += height
+        current_x += width
+
+    # Titles and labels
+    ax.set_xlim(0, current_x)
+    ax.set_ylim(0, current_y)
+    ax.invert_yaxis()
+    plt.xlabel('Cluster', fontsize = 14)
+    plt.ylabel('Cluster', fontsize = 14)
+    plt.gca().set_aspect('equal', adjustable='box')
+
+    # Remove ticks and tick labels
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+
+    # Add color bar
+    # norm = plt.Normalize(vmin=0, vmax=1)
+    sm = plt.cm.ScalarMappable(cmap='Reds', norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=ax)
+    cbar.set_label('Average consensus', rotation = 90, fontsize = 14)
+    plt.tight_layout()
+    plt.savefig(output_path)
+
+
+def plot_summary_heatmap(consensus_summary_matrix, cluster_sizes, output_path,
+                            scale_small = 1000, scale_big = 10000):
+    # Sort clusters by size
+    num_clusters = len(cluster_sizes)
+    sorted_indices = np.argsort(-cluster_sizes)
+    sorted_matrix = consensus_summary_matrix[sorted_indices, :][:, sorted_indices]
+    sorted_cluster_sizes = cluster_sizes[sorted_indices]
+
+    # Normalize cluster sizes to get proportions
+    total_size = sum(sorted_cluster_sizes)
+    normalized_sizes = sorted_cluster_sizes / total_size
+
+    # Create custom plot
+    fig, ax = plt.subplots(figsize=(16, 12))
+
+    # Remove plot borders
+    ax.axis('off')
+
+    current_x = 0.01
+    for i in range(num_clusters):
+        current_y = 0.08
+        for j in range(num_clusters):
+            width = normalized_sizes[i]   # Scaling factor for visual clarity
+            height = normalized_sizes[j]  # Scaling factor for visual clarity
+            color = plt.cm.Reds(sorted_matrix[i, j])
+            rect = plt.Rectangle((current_x, current_y), width, height, facecolor=color, edgecolor='black')
+            ax.add_patch(rect)
+            current_y += height
+        current_x += width
+
+    # Titles and labels
+    ax.set_xlim(0, current_x + 0.01)
+    ax.set_ylim(0, current_y + 0.01)
+    ax.invert_yaxis()
+    plt.xlabel('Cluster')
+    plt.ylabel('Cluster')
+    plt.gca().set_aspect('equal', adjustable='box')
+
+    # Add color bar
+    norm = plt.Normalize(vmin=0, vmax=1)
+    sm = plt.cm.ScalarMappable(cmap='Reds', norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=ax)
+    cbar.set_label('Average consensus')
+
+    # Remove ticks
+    plt.xticks([])
+    plt.yticks([])
+
+    # Calculate scales
+    scale_small_species = scale_small / total_size
+    scale_big_species = scale_big / total_size
+
+    # Plot the reference scale line
+    ax.plot([0.01, scale_big_species + 0.01], [0.03, 0.03], color='black', linewidth=1.5, linestyle='--')
+
+    # Add legend on top of the line
+    ax.text(0.06, 0.015, 'Num. Species', ha='center', va='bottom')
+
+    # Add ticks and labels for the scales
+    tick_length = 0.007
+    ax.plot([0.01, 0.01], [0.03 - tick_length, 0.03 + tick_length], color='black', linewidth=1.5)
+    ax.plot([scale_small_species + 0.01, scale_small_species + 0.01], [0.03 - tick_length, 0.03 + tick_length], color='black', linewidth=1.5)
+    ax.text(scale_small_species + 0.01, 0.045, str(scale_small), ha='center', va='top')
+
+    ax.plot([scale_big_species + 0.01, scale_big_species + 0.01], [0.03 - tick_length, 0.03 + tick_length], color='black', linewidth=1.5)
+    ax.text(scale_big_species + 0.01, 0.045, str(scale_big), ha='center', va='top')
+
+    plt.tight_layout()
+    plt.savefig(output_path)
+
+
+
+def calculate_silhouette_score(distance_matrix, n_clust):
+    """ Calculate the silhouette score for a given number of clusters """
+    print(f'Calculating for {n_clust} clusters')
+    condensed_distance_matrix = squareform(distance_matrix)
+    Z = sch.linkage(condensed_distance_matrix, method='ward')
+    clusters = sch.fcluster(Z, t=n_clust, criterion='maxclust')
+    score = silhouette_score(distance_matrix, clusters, metric='precomputed')
+    print(score)
+    return score
+
+def analyze_clusters(distance_matrix, consensus_matrix, n_cluster_list, output_images, method, n_jobs=1):
+    """ Analyze different cluster sizes and plot silhouette scores """
+    
+    if n_jobs == 1:
+        # Sequential computation of silhouette scores
+        silhouette_score_list = [calculate_silhouette_score(distance_matrix, n_clust) for n_clust in n_cluster_list]
+    else:
+        # Parallel computation of silhouette scores
+        silhouette_score_list = Parallel(n_jobs=n_jobs)(delayed(calculate_silhouette_score)(distance_matrix, n_clust) for n_clust in n_cluster_list)
+
+    best_num_clusters = n_cluster_list[np.argmax(silhouette_score_list)]
+    max_silhouette_score = max(silhouette_score_list)
+    
+    plt.figure(figsize=(12, 6))  # Set figure size
+    plt.plot(n_cluster_list, silhouette_score_list, linestyle='-', color='b')
+    plt.xlabel('Number of groups ($K$)')
+    plt.ylabel('Silhouette Score')
+    
+    # Highlight the maximum value with a marker and text
+    plt.scatter(best_num_clusters, max_silhouette_score, color='red', zorder=5)
+    plt.text(n_cluster_list[-1], max(silhouette_score_list), f'Best K = {best_num_clusters}\nMax Score = {max_silhouette_score:.2f}', 
+             horizontalalignment='right', verticalalignment='top', color='red', fontsize=10, 
+             bbox=dict(facecolor='lightpink', alpha=0.8, edgecolor='red'))
+
+    plt.savefig(os.path.join(output_images, f'silhouette_score_{method}.pdf'))
+    plt.clf()
+    
+    return best_num_clusters
+
+def main():
+    method = sys.argv[1]
+    if len(sys.argv) == 3:
+        n_jobs = int(sys.argv[2])
+    else:
+        n_jobs = 1
+    
+    consensus_data = 'full_data'
+    # consensus_data = 'Wood density_Leaf area'
+    output_dir = os.path.join('output', 'consensus', method, consensus_data)
+    images_dir = os.path.join(output_dir, 'images')
+
+    # clusters to try
+    # n_cluster_list = [i*5 for i in range(1,21)]
+    n_cluster_list = [i for i in range(2,120)]
+    # n_cluster_list = [i for i in [100,200,300,400,500]]
+    # n_cluster_list = [2,3,4,5,6]
+    
+    # Create the images directory if it doesn't exist
+    os.makedirs(images_dir, exist_ok=True)
+
+    consensus_matrix = load_consensus_matrix(output_dir)
+    print('Matrix subsample:')
+    print(consensus_matrix[100:110, 100:110])
+
+    distance_matrix = compute_distance_matrix(consensus_matrix)
+
+    print('Analyzing cluster sizes...')
+    # Get best nuber of clusters using silhouette score
+    best_num_clusters = analyze_clusters(distance_matrix, consensus_matrix, n_cluster_list, images_dir, method, n_jobs)
+    # best_num_clusters = 50
+
+    print(f'Best number of clusters: {best_num_clusters}')
+    print('Performing hierarchical clustering...')
+    clusters, ordered_consensus_matrix = hierarchical_clustering(distance_matrix, consensus_matrix, best_num_clusters)
+
+    # save clusters
+    pd.DataFrame(clusters).to_csv(os.path.join(output_dir, 'final_clusters.csv'), index=False, header=False)
+
+    # ds_ordered_consensus_matrix = downsample_matrix(ordered_consensus_matrix, 50)
+    # print('Shape of downsize: ', ds_ordered_consensus_matrix.shape)
+
+    # print('Plotting heatmap ORDERED...')
+    # plot_heatmap(ds_ordered_consensus_matrix, os.path.join(images_dir, f'heatmap_ordered_G{best_num_clusters}.pdf'), 'Heatmap of Ordered Distance Matrix')
+    
+    ds_consensus_matrix = downsample_matrix(consensus_matrix, 50)
+    print('Plotting heatmap ORIGINAL...')
+    plot_heatmap(ds_consensus_matrix, os.path.join(images_dir, f'heatmap_G{best_num_clusters}.pdf'), 'Heatmap of Ordered Distance Matrix')
+
+    print('Plotting Summary')
+    summary_consensus_matrix, cluster_sizes = compute_summary_matrix(consensus_matrix, clusters)
+    print(summary_consensus_matrix)
+    pd.DataFrame(summary_consensus_matrix).to_csv(os.path.join(output_dir, 'summary_consensus_matrix.csv'))
+    plot_summary_heatmap(summary_consensus_matrix, cluster_sizes, os.path.join(images_dir, f'heatmap_G{best_num_clusters}_summary.pdf'))
+
+
+    # Save cluster information to a dataframe
+    cluster_info = {
+        'Cluster': range(1, best_num_clusters + 1),
+        'Size': cluster_sizes,
+        'Avg Consensus': np.diag(summary_consensus_matrix)
+    }
+    cluster_df = pd.DataFrame(cluster_info)
+    cluster_df.to_csv(os.path.join(output_dir, 'clusters_info.csv'), index=False)
+
+if __name__ == '__main__':
+    main()
+
+
+
+# import pandas as pd
+# import numpy as np
+# import pyarrow as pa
+# import os
+# import seaborn as sns
+# import matplotlib.pyplot as plt
+# from sklearn.metrics import silhouette_score
+
+# import scipy.cluster.hierarchy as sch
+# from scipy.spatial.distance import squareform
+
+
+# def downsample_matrix(matrix, factor):
+#     """ Downsample a matrix by averaging over factor x factor blocks """
+#     # Compute the size of the downsampled matrix
+#     new_size = matrix.shape[0] // factor, matrix.shape[1] // factor
+#     downsampled = np.zeros(new_size)
+    
+#     for i in range(new_size[0]):
+#         for j in range(new_size[1]):
+#             downsampled[i, j] = np.mean(matrix[i*factor:(i+1)*factor, j*factor:(j+1)*factor])
+    
+#     return downsampled
+
+
+# # output directory
+# method = 'hdbscan_error0.5'
+# output_dir = os.path.join('output',  'consensus', method, 'full_data')
+# output_images = os.path.join('output', 'images')
+# # read consensus matrix
+# consensus_matrix = pd.read_parquet(os.path.join(output_dir, 'consensus_matrix.parquet')).values
+# # print a portion of the matrix
+# print('Matrix subsample:')
+# print(consensus_matrix[100:110,100:110]) ## something is going on with the diagonal (it should be 1 or 0)
+# distance_matrix = 1 - consensus_matrix
+# np.fill_diagonal(distance_matrix, 0)
+
+# # ### plot distnce matrix
+# # sns.heatmap(downsized_consensus, cmap='Reds')
+# # plt.savefig(os.path.join(output_images,'consensus_matrix_heatmap.pdf'))
+
+# # Convert to condensed distance matrix for clustering
+# condensed_distance_matrix = squareform(distance_matrix)
+
+
+# # n_cluster_list = [5,10,15,20,25,30,35,40]
+
+# # silhouette_score_list = [] 
+# # for n_clust in n_cluster_list:
+# #     print(f'Calculating for {n_clust} clusters')
+# #     Z = sch.linkage(condensed_distance_matrix, method = 'ward')
+# #     clusters = sch.fcluster(Z, t = n_clust, criterion='maxclust')
+# #     score = silhouette_score(distance_matrix, clusters, metric='precomputed')
+# #     print(score)
+# #     silhouette_score_list.append(score)
+
+# # plt.plot(n_cluster_list, silhouette_score_list)
+# # plt.savefig(os.path.join(output_images, f'silhoutte_score_{method}.pdf'))
+# # plt.clf()
+
+
+
+
+# num_clusters = 20
+
+# # Perform hierarchical clustering
+# print('Performing hierarchical...')
+# Z = sch.linkage(condensed_distance_matrix, method='ward')
+
+# # Retrieve cluster labels at a given cutoff (not super sure how this works)
+# clusters = sch.fcluster(Z, t = num_clusters, criterion='maxclust')
+
+# # Order the distance matrix by clusters
+# order = np.argsort(clusters)  # This gives indices that sort the clusters
+# ordered_consensus_matrix = consensus_matrix[order, :][:, order]
+
+# ds_ordered_consensus_matrix = downsample_matrix(ordered_consensus_matrix, 50)
+# print('Shape of downsize: ', ds_ordered_consensus_matrix.shape)
+# # Plot the heatmap
+# print('Plotting...')
+# plt.figure(figsize=(8, 5))
+# sns.heatmap(ds_ordered_consensus_matrix, cmap='Reds', xticklabels=False, yticklabels=False)
+# plt.title('Heatmap of Ordered Distance Matrix')
+# plt.savefig(os.path.join(output_images, f'heatmap_ordered_{method}.pdf'))
+
+
+
+
+
+analyse_clusters.py
+
+import pandas as pd
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+
+def load_clusters(output_dir):
+    cluster_path = os.path.join(output_dir, 'final_clusters.csv')
+    print(f"Cluster path: {cluster_path}")  # Debugging statement
+    if not os.path.exists(cluster_path):
+        raise FileNotFoundError(f"File not found: {cluster_path}")
+    return pd.read_csv(cluster_path, header=None).values.flatten()
+
+def load_original_data(data_path):
+    print(f"Loading original data from {data_path}")
+    return pd.read_csv(data_path, index_col=0)
+
+def plot_cluster_distribution(clusters, images_dir):
+    cluster_sizes = pd.Series(clusters).value_counts().values
+    plt.figure(figsize=(12, 8))
+    sns.histplot(cluster_sizes, bins=range(0, max(cluster_sizes) + 100, 100),
+     kde=False, color='skyblue', edgecolor='black')
+    plt.xlabel('Cluster Size')
+    plt.ylabel('Frequency')
+    plt.tight_layout()
+    plt.savefig(os.path.join(images_dir, 'cluster_size_distribution.png'))
+    plt.clf()
+
+def create_custom_palette(n_colors):
+    # Create a custom palette with a mix of pastel, dark, and neutral colors
+    palette = sns.color_palette("husl", n_colors=n_colors//3) + \
+              sns.color_palette("dark", n_colors=n_colors//3) + \
+              sns.color_palette("pastel", n_colors=n_colors//3)
+    return palette
+
+def plot_pca(data, clusters, images_dir):
+    pca = PCA(n_components=2)
+    pca_components = pca.fit_transform(data)
+    plt.figure(figsize=(16, 10))
+    markers = ['o', 's', 'D']  # Different markers for variety
+    palette = create_custom_palette(n_colors=30)
+    sns.scatterplot(x=pca_components[:, 0], y=pca_components[:, 1], hue=clusters, 
+                    palette=palette, style=clusters, markers=markers, legend=None, s=10)
+    plt.xlabel('PCA 1')
+    plt.ylabel('PCA 2')
+    plt.tight_layout()
+    plt.savefig(os.path.join(images_dir, 'pca_clusters.png'))
+    plt.clf()
+
+def plot_tsne(data, clusters, images_dir):
+    tsne = TSNE(n_components=2, random_state=42)
+    tsne_components = tsne.fit_transform(data)
+    plt.figure(figsize=(16, 10))
+    markers = ['o', 's', 'D']  # Different markers for variety
+    palette = create_custom_palette(n_colors=30)
+    sns.scatterplot(x=tsne_components[:, 0], y=tsne_components[:, 1], hue=clusters, palette=palette, style=clusters, markers=markers, legend=None, s=10)
+    plt.xlabel('t-SNE 1')
+    plt.ylabel('t-SNE 2')
+    plt.tight_layout()
+    plt.savefig(os.path.join(images_dir, 'tsne_clusters.png'))
+    plt.clf()
+
+def plot_traits(data, clusters, traits, images_dir):
+    plt.figure(figsize=(10,8))
+    markers = ['o']  # Different markers for variety
+    palette = create_custom_palette(n_colors=10)
+    sns.scatterplot(x=data[traits[0]], y=data[traits[1]],
+    hue=clusters, palette=palette, style=clusters, markers=markers, legend=None, s=10)
+    plt.xlabel(traits[0])
+    plt.ylabel(traits[1])
+    plt.savefig(os.path.join(images_dir, 'final_cluster_traits.png'))
+    plt.clf()
+
+def analyze_clusters(data, clusters, output_dir):
+    images_dir = os.path.join(output_dir, 'images')
+    os.makedirs(images_dir, exist_ok=True)
+    plot_cluster_distribution(clusters, images_dir)
+    plot_pca(data, clusters, images_dir)
+    plot_tsne(data, clusters, images_dir)
+
+def main():
+    method = 'gmm_error1.0_rnd'  # Use the actual method name
+    consensus_data = 'full_data'
+    # consensus_data = 'Wood density_Leaf area'
+    output_dir = os.path.join('output', 'consensus', method, consensus_data)
+    data_path = os.path.join('data', 'traits_pred_log.csv')
+    
+    print(f"Output directory: {output_dir}")
+    print(f"Data path: {data_path}")
+    
+    clusters = load_clusters(output_dir)
+    data = load_original_data(data_path)
+
+    analyze_clusters(data, clusters, output_dir)
+    # plot_traits(data, clusters, ['Wood density', 'Leaf area'], os.path.join(output_dir, 'images'))
+
+if __name__ == '__main__':
+    main()
+
+
+
+
+
+
+
+analyse_phylo.py
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.mixture import GaussianMixture
+import os
+# from Bio import Phylo
+from analyse_consensus import compute_distance_matrix, hierarchical_clustering
+
+def dist_tax(df_tax, tax_name):
+
+    unique_tax = df_tax[tax_name].unique()
+    n_tax = len(unique_tax)
+    tax_n_species_list = []
+    tax_mean_phylo_dist_list = []
+
+    for g in unique_tax:
+        # get species in genus
+        species = df_tax[df_tax[tax_name] == g]['accepted_bin'].tolist()
+        n_species_g = len(species)
+        if n_species_g == 0 or n_species_g == 1:
+            continue
+        # replace space with _
+        species_ = [s.replace(' ', '_') for s in species]
+        # get phylogenetic distance between species
+        phylo_dist_g = phylo_dist.loc[species_, species_]
+        #get the mean phylogenetic distance (for non-diagonal elements)    
+        mean_k = np.sum(phylo_dist_g.values) / (n_species_g*(n_species_g-1))
+
+        tax_n_species_list.append(n_species_g)
+        tax_mean_phylo_dist_list.append(mean_k)
+    
+    return n_tax, tax_n_species_list, tax_mean_phylo_dist_list
+    
+
+
+method = 'gmm_error1.0_rnd'
+consensus_data = 'full_data'
+output_dir = os.path.join('output', 'consensus', method, consensus_data)
+
+# read C:\Users\pablo\OneDrive\Desktop\tree_clustering\data\traits_pred_log.csv
+df_traits = pd.read_csv('data/traits_pred_log.csv', index_col = 0)
+species_list = list(df_traits.index)
+species_list_ = [s.replace(' ', '_') for s in species_list]
+# read taxonomic_information.csv
+tax = pd.read_csv('data/taxonomic_information.csv')
+tax = tax[tax['accepted_bin'].isin(df_traits.index)]
+
+# C:\Users\pablo\OneDrive\Desktop\tree_clustering\output\imputed_data\gaussian_mixture\clusters_200.csv
+# clusters = pd.read_csv('output/complete_data/gaussian_mixture_full/clusters_1000.csv',
+#                        index_col=0)
+clusters = pd.read_csv('output/consensus/gmm_error1.0_rnd/full_data/final_clusters.csv',
+                        names = ['cluster'])
+clusters.index = species_list
+# # read tree newick file
+# tree_path = ('data/phy_tree_BGCI_full.newick')
+# tree = Phylo.read(tree_path, 'newick')
+
+# read C:\Users\pablo\OneDrive\Desktop\tree_clustering\data\phylogenetic_distance_matrix_BGCI_full.arrow
+phylo_dist = pd.read_feather('data/phylogenetic_distance_matrix_BGCI_full.arrow')
+phylo_dist.index = phylo_dist.columns
+phylo_dist = phylo_dist.loc[species_list_, species_list_]
+
+
+# read consensus matrix
+consensus_matrix = pd.read_parquet(os.path.join(output_dir, 'consensus_matrix.parquet')).values
+distance_matrix = compute_distance_matrix(consensus_matrix)
+
+### take out diagonal for correlation
+mask = np.eye(consensus_matrix.shape[0], dtype=bool)
+flat_consensus = consensus_matrix[~mask]
+flat_phylo_dist = phylo_dist.values[~mask]
+
+# Compute correlation
+correlation = np.corrcoef(flat_consensus, flat_phylo_dist)[0, 1]
+
+print("Correlation between consensus matrix and phylogenetic distance matrix:", correlation)
+
+
+# genus
+print('Calculating distances for genus')
+n_genus, n_species_genus, mean_phylo_dist_genus = dist_tax(tax, 'genus')
+print(n_genus)
+# family
+print('Calculating distances for family')
+n_family, n_species_family, mean_phylo_dist_family = dist_tax(tax, 'family')
+print(n_family)
+# order
+print('Calculating distances for order')
+n_order, n_species_order, mean_phylo_dist_order = dist_tax(tax, 'order')
+print(n_order)
+
+# genus
+clusters, _ = hierarchical_clustering(distance_matrix, consensus_matrix, n_genus)
+tax['cluster_genus'] = clusters
+print(f'Calculating distances for trait clusters {n_genus}')
+_, n_species_genus_cluster, mean_phylo_dist_genus_cluster = dist_tax(tax, 'cluster_genus')
+# family
+clusters, _ = hierarchical_clustering(distance_matrix, consensus_matrix, n_family)
+tax['cluster_family'] = clusters
+print(f'Calculating distances for trait clusters {n_family}')
+_, n_species_family_cluster, mean_phylo_dist_family_cluster = dist_tax(tax, 'cluster_family')
+# order
+clusters, _ = hierarchical_clustering(distance_matrix, consensus_matrix, n_order)
+tax['cluster_order'] = clusters
+print(f'Calculating distances for trait clusters {n_order}')
+_, n_species_order_cluster, mean_phylo_dist_order_cluster = dist_tax(tax, 'cluster_order')
+
+
+###### PHYLO COMPARE PLOT #####
+###### PHYLO COMPARE PLOT #####
+fig, axs = plt.subplots(1, 6, figsize=(21, 5))  # Adjust the figure size to fit the single row
+
+## GENUS ##
+axs[0].scatter(n_species_genus, mean_phylo_dist_genus, label='Genus',
+               color='blue', alpha=0.5, edgecolors='none')
+axs[1].scatter(n_species_genus_cluster, mean_phylo_dist_genus_cluster, label='Consensus Clustering',
+               color='blue', alpha=0.5, edgecolors='none')
+
+# Line with average
+mean_phylo_dist_genus_cluster_avg = np.mean(mean_phylo_dist_genus_cluster)
+axs[1].axhline(mean_phylo_dist_genus_cluster_avg, color='black', linestyle='--')
+mean_phylo_dist_genus_avg = np.mean(mean_phylo_dist_genus)
+axs[0].axhline(mean_phylo_dist_genus_avg, color='black', linestyle='--')
+
+# Titles and labels
+axs[0].set_title('Genus')
+axs[1].set_title('Consensus Clustering Genus')
+axs[0].set_xlabel('Number of Species')
+axs[1].set_xlabel('Number of Species')
+axs[0].set_ylabel('Mean Phylogenetic Distance')
+
+## FAMILY ##
+axs[2].scatter(np.log10(n_species_family), mean_phylo_dist_family, label='Family',
+               color='red', alpha=0.5, edgecolors='none')
+axs[3].scatter(np.log10(n_species_family_cluster), mean_phylo_dist_family_cluster, label='Consensus Clustering',
+               color='red', alpha=0.5, edgecolors='none')
+
+# Line with average
+mean_phylo_dist_family_cluster_avg = np.mean(mean_phylo_dist_family_cluster)
+axs[3].axhline(mean_phylo_dist_family_cluster_avg, color='black', linestyle='--')
+mean_phylo_dist_family_avg = np.mean(mean_phylo_dist_family)
+axs[2].axhline(mean_phylo_dist_family_avg, color='black', linestyle='--')
+
+# Titles and labels
+axs[2].set_title('Family')
+axs[3].set_title('Consensus Clustering Family')
+axs[2].set_xlabel('Log10(Number of Species)')
+axs[3].set_xlabel('Log10(Number of Species)')
+
+## ORDER ##
+axs[4].scatter(n_species_order, mean_phylo_dist_order, label='Order',
+               color='green', alpha=0.5, edgecolors='none')
+axs[5].scatter(n_species_order_cluster, mean_phylo_dist_order_cluster, label='Consensus Clustering',
+               color='green', alpha=0.5, edgecolors='none')
+
+# Line with average
+mean_phylo_dist_order_cluster_avg = np.mean(mean_phylo_dist_order_cluster)
+axs[5].axhline(mean_phylo_dist_order_cluster_avg, color='black', linestyle='--')
+mean_phylo_dist_order_avg = np.mean(mean_phylo_dist_order)
+axs[4].axhline(mean_phylo_dist_order_avg, color='black', linestyle='--')
+
+# Titles and labels
+axs[4].set_title('Order')
+axs[5].set_title('Consensus Clustering Order')
+axs[4].set_xlabel('Number of Species')
+axs[5].set_xlabel('Number of Species')
+
+# Save figure
+plt.savefig(os.path.join(output_dir, 'phylo_vs_trait.pdf'))
+plt.show()
+
+
+
+
+
+# ### TODO: Run clusters matching each taxonomic order
+# k_list = clusters.values.unique()
+# n_species_list = []
+# mean_distance_list = []
+# mean_trait_distance_list = []
+
+# for k in k_list:
+#     cluster_k = clusters[clusters['cluster'] == k]
+
+#     # get species from cluster_k (accepted_bin)
+#     species = cluster_k.index
+#     # change spaces to underscores
+#     species_ = species.str.replace(' ', '_')
+#     n_species_k = len(species)
+
+#     # iterate over species and get the phylogenetic distance
+#     phylo_dist_k = phylo_dist.loc[species_, species_]
+
+#     # get the mean phylogenetic distance (for non-diagonal elements)    
+#     mean_k = np.sum(phylo_dist_k.values) / (n_species_k*(n_species_k-1))
+
+#     print(f'Cluster {k}, mean distance {mean_k}, n_species {len(species)}')
+
+#     n_species_list.append(len(species))
+#     mean_distance_list.append(mean_k)
+
+
+
+
+pipeline_clusters.sh
+
+#!/bin/bash
+
+# Define directories
+cluster_script="code/cluster_labels.py"  # Update this path
+consensus_script="code/consensus_matrix.py"  # Path to consensus matrix script
+analyse_script="code/analyse_consensus.py"  # Path to analyse consensus script
+
+# Define method and number of components for GMM
+method="gmm"  # Options: 'hdbscan' or 'gmm'
+components=20  # Specify number of components if using GMM
+rnd="_rnd" # If using rnd assignation
+
+# Set the number of threads for MKL, OpenBLAS, and OMP (used by NumPy, SciPy)
+export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+
+# Define a list of error weights to iterate over
+# error_weights=(0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1)
+error_weights=(1.0)
+
+for error_weight in "${error_weights[@]}"; do
+    # Construct the method string with error weight
+    method_with_error="${method}_error${error_weight}"
+
+    # Run the clustering script for each seed in parallel
+    for seed in {150..161}; do
+        /home/pablo/.venv/bin/python3 "$cluster_script" --seed "$seed" --method "$method" --error_weight "$error_weight" --components "$components" &
+    done
+
+    # Wait for all background jobs to finish
+    wait
+    echo "All clustering processes have completed for error_weight=${error_weight}."
+
+    # Run consensus matrix script
+    /home/pablo/.venv/bin/python3 "$consensus_script" --method "$method_with_error""$rnd"
+    echo "Consensus matrix computation completed for error_weight=${error_weight}."
+
+    # Run analyse consensus script
+    /home/pablo/.venv/bin/python3 "$analyse_script" "$method_with_error""$rnd" 20
+    echo "Analysis of consensus matrix completed for error_weight=${error_weight}."
+done
+
+echo "All processes have completed for all error weights."
+
+

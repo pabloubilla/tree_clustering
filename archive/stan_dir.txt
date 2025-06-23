@@ -1,0 +1,4 @@
+C:\Users\pablo\miniconda3\envs\stan\Library\bin\cmdstan
+
+https://mc-stan.org/docs/cmdstan-guide/installation.html#conda-install
+
