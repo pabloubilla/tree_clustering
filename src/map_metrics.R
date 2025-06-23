@@ -103,7 +103,7 @@ plot_two_rasters <- function(r1, r2,
 plot_two_rasters(raster_list[['nspec']], raster_list[['nclust']],
                  'Num. of Species', 'Num. of Clusters',
                  #save_path = NULL
-                 save_path = 'figures/nspec_nclust_map.png'
+                 save_path = 'output/figures/nspec_nclust_map.png'
                  )
 
 
@@ -147,7 +147,7 @@ plot_metric_scatter <- function(data, x_metric, y_metric,
 plot_metric_scatter(all_metrics, "nspec", "inverse_simpson",
                     log_transform = FALSE, add_lm = FALSE,
                     x_label = 'Number of Species', y_label = "Inverse Simpson Index",
-                    save_path = 'figures/nspec_vs_isi.pdf')
+                    save_path = 'output/figures/nspec_vs_isi.pdf')
 
 
 
