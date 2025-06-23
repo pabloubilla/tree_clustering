@@ -5,16 +5,9 @@
 /missing-data
 
 /server
-/output/gmm_error1.0
-/output/gmm_error1.0_rnd
-/output/hdbscan_error0.0
-/output/hdbscan_error1.0
-/output/hdbscan_error1.0_rnd
-/output/hdbscan_error1.0_scl
 
-output/gmm_error1.0_scl/full_data/consensus_matrix.parquet
-
-output/spatial_analysis
+output/consensus/*
+!output/consensus/gmm_error1.0_rnd_scl/small_120
 
 /output_old
 /notes
