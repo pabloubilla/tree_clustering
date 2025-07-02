@@ -14,7 +14,7 @@ def load_data():
     df_species['accepted_bin'] = df_species['accepted_bin'].str.replace(" ", "_")
 
     clusters_path = os.path.join(
-        "output/consensus_dissertation/gmm_error1.0_scl/full_data/final_clusters.csv"
+        "output/consensus/gmm_error1.0_scl/full_data/final_clusters.csv"
     )
     df_clusters = pd.read_csv(clusters_path, header=None).to_numpy()
 
@@ -54,15 +54,23 @@ def process_data(df_sites, df_species, df_clusters):
     )
 
     # Simpson's index (as simpson measure)
-    grid_species['simpson'] = (
+    grid_species['cluster_simpson'] = (
         df_sites.groupby('grid_id')['cluster']
         .apply(lambda x: (x.value_counts(normalize=True) ** 2).sum())
         .reset_index(name='simpson')['simpson']
     )
 
     # Inverse Simpson
-    grid_species['inverse_simpson'] = 1/(1+grid_species['simpson'])
+    # grid_species['inverse_simpson'] = 1/(grid_species['simpson'])
 
+
+
+    # Simpson's index (as simpson measure)
+    grid_species['species_simpson'] = (
+        df_sites.groupby('grid_id')['accepted_bin']
+        .apply(lambda x: (x.value_counts(normalize=True) ** 2).sum())
+        .reset_index(name='simpson')['simpson']
+    )
 
     # average species per cluster
     # grid_species['redun'] = (

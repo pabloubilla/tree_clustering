@@ -18,7 +18,7 @@ names(template_raster) <- "Grid"
 metrics_path <- "output/spatial_analysis/REV_obs_results_200_extended.csv"
 all_metrics <- read.csv(metrics_path)
 
-# (To double-check simpsons index)
+#### (To double-check simpsons index) #####
 # sites_path <- "output/spatial_analysis/sites_cluster.csv"
 # df_sites <- read.csv(sites_path)
 # 
@@ -28,11 +28,6 @@ all_metrics <- read.csv(metrics_path)
 #   column_to_rownames("grid_id")
 # 
 # cluster_simpson <- diversity(cluster_matrix, index = "simpson")
-
-
-
-
-
 
 # Output directory for rasters
 output_dir <- "output/spatial_analysis/"
@@ -65,22 +60,16 @@ par(
   oma = c(0, 0, 0, .3)  # no outer margin
   # xaxs = "i", yaxs = "i" # do not expand axis limits
 )
-# First plot
-plot(raster_list[["nclust"]], axes = FALSE, box = FALSE, main = NA)
-mtext("Number of Clusters", side = 2, line = 2.5, las = 0)
 
-# Second plot
-plot(raster_list[["nspec"]]/raster_list[["nclust"]], axes = FALSE, box = FALSE, main = NA)
-mtext("Species per Cluster", side = 2, line = 2.5, las = 0)
 
 plot_two_rasters <- function(r1, r2,
                              title1 = "Top Map", title2 = "Bottom Map",
                              palette1 = viridis::viridis(20),
                              palette2 = viridis::viridis(20),
                              save_path = NULL) {
-  if (!is.null(save_path)) {
-    png(save_path, width = 6.3, height = 4, units = "in", res = 300)
-  }
+  # if (!is.null(save_path)) {
+  #   png(save_path, width = 6.3, height = 4, units = "in", res = 300)
+  # }
   
   # adjust margins
   par(
@@ -93,10 +82,20 @@ plot_two_rasters <- function(r1, r2,
   mtext(title1, side = 2, line = 0, las = 0)
   plot(r2, col = palette2, axes = FALSE, box = FALSE)
   mtext(title2, side = 2, line = 0, las = 0)
+
   
+  # Save the plot if requested
   if (!is.null(save_path)) {
+    # Record the current plot
+    p <- recordPlot()
+    
+    # Open PNG device and replay the recorded plot
+    png(save_path, width = 6.3, height = 4, units = "in", res = 300)
+    replayPlot(p)
     dev.off()
+    
     message("Saved to: ", save_path)
+  
   }
 }
 
@@ -144,11 +143,29 @@ plot_metric_scatter <- function(data, x_metric, y_metric,
   }
 }
 
-plot_metric_scatter(all_metrics, "nspec", "inverse_simpson",
+plot_metric_scatter(all_metrics, "nspec", "cluster_simpson",
                     log_transform = FALSE, add_lm = FALSE,
-                    x_label = 'Number of Species', y_label = "Inverse Simpson Index",
+                    #x_label = 'Number of Species', y_label = "Inverse Simpson Index",
                     save_path = 'output/figures/nspec_vs_isi.pdf')
 
+all_metrics$cluster_gini <- 1-all_metrics$cluster_simpson
 
+1/(all_metrics[['simpson']])
 
+all_metrics$inverse_simpson
+
+### S = sum 1/p2_i
+
+summary(lm(cluster_simpson~fdr*raoq*nspec, data = all_metrics))
+
+summary(lm(fdr~raoq, data = all_metrics))
+
+par(
+  mfrow = c(2,1)
+)
+
+plot_metric_scatter(all_metrics, "nspec", "cluster_simpson",
+                    log_transform = FALSE, add_lm = FALSE,
+                    #x_label = 'Number of Species', y_label = "Inverse Simpson Index",
+                    save_path = 'output/figures/nspec_vs_isi.pdf')
 
