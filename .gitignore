@@ -3,6 +3,7 @@
 /.vscode
 /abstract
 /missing-data
+/diagram
 
 /server
 
@@ -22,3 +23,4 @@ vnc.txt
 # data
 data/phylogenetic_distance_matrix_BGCI_full.arrow
 data/Estimated_trait_table_with_monos.csv
+.Rproj.user
