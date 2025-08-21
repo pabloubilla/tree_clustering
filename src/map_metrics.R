@@ -5,6 +5,10 @@ library(dplyr)
 library(tibble)
 library(tidyr)
 library(viridis)
+library(patchwork)
+library(rlang)
+library(purrr)
+
 
 # Working directory should be root of this project
 
@@ -168,4 +172,143 @@ plot_metric_scatter(all_metrics, "nspec", "cluster_simpson",
                     log_transform = FALSE, add_lm = FALSE,
                     #x_label = 'Number of Species', y_label = "Inverse Simpson Index",
                     save_path = 'output/figures/nspec_vs_isi.pdf')
+
+
+
+
+facet_scatter_by_x <- function(data, x_metrics, y_metric,
+                               log_transform = FALSE, add_lm = FALSE,
+                               x_labels = NULL, facet_labels = NULL,
+                               ncol = NULL, nrow = NULL,
+                               save_path = NULL, width = 8, height = 6, dpi = 300) {
+  
+  # Reshape data to long format for faceting
+  plot_data <- x_metrics %>%
+    map_dfr(~ {
+      df <- data %>%
+        select(x = all_of(.x), y = all_of(y_metric)) %>%
+        mutate(x_var = .x)
+      colnames(df)[1:2] <- c("x", "y")
+      df
+    })
+  
+  # Apply log transform if needed
+  if (log_transform) {
+    plot_data <- plot_data %>%
+      mutate(x = log1p(x), y = log1p(y))
+  }
+  
+  # Label mapping
+  plot_data <- plot_data %>%
+    mutate(x_var = factor(x_var, levels = x_metrics,
+                          labels = facet_labels %||% x_labels %||% x_metrics))
+  
+  # Base plot
+  p <- ggplot(plot_data, aes(x = x, y = y)) +
+    # geom_bin2d(bins = 100) +
+    # stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+    # scale_x_continuous(expand = c(0, 0)) +
+    # scale_y_continuous(expand = c(0, 0)) +
+    theme_bw() +
+    geom_point(color = "deepskyblue4", alpha = 0.3, size = 0.8) +
+    # labs(x = NULL, y = if (log_transform) paste0("log(1 + ", y_metric, ")") else y_metric) +
+    # theme_classic(base_size = 12) +
+    facet_wrap(~ x_var, scales = "free_x", ncol = ncol, nrow = nrow)
+  # 
+  
+  # p <- ggplot(plot_data, aes(x = x, y = y)) +
+  #   stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  #   scale_fill_viridis_c(option = "C", direction = -1) +  # better fill scale
+  #   scale_x_continuous(expand = c(0, 0)) +
+  #   scale_y_continuous(expand = c(0, 0)) +
+  #   labs(x = NULL, y = if (log_transform) paste0("log(1 + ", y_metric, ")") else y_metric) +
+  #   theme_bw(base_size = 12) +
+  #   facet_wrap(~ x_var, scales = "free_x", ncol = ncol, nrow = nrow)
+  
+  
+  
+  
+  # Add linear model line if requested
+  if (add_lm) {
+    p <- p + geom_smooth(method = "lm", se = FALSE, color = "red", linewidth = 1)
+  }
+  
+  print(p)
+  
+  if (!is.null(save_path)) {
+    ggsave(save_path, plot = p, width = width, height = height, dpi = dpi)
+    message("Plot saved to: ", save_path)
+  }
+}
+
+facet_scatter_by_x(all_metrics, c('nspec', 'raoq', 'fdr'), 'cluster_simpson')
+
+
+# #### 4 metrics
+# plot_4metric_scatter <- function(data, metrics, 
+#                                  x_label = NULL, y_label = NULL, 
+#                                  log_transform = FALSE, add_lm = TRUE, 
+#                                  titles = NULL,
+#                                  save_path = NULL, width = 6.30045, height = 4, dpi = 300) {
+#   
+#   if (length(metrics) != 4 || !all(sapply(metrics, length) == 2)) {
+#     stop("metrics must be a list of 4 pairs (each pair of x and y metric names).")
+#   }
+#   
+#   plots <- list()
+#   
+#   for (i in seq_along(metrics)) {
+#     x_metric <- metrics[[i]][1]
+#     y_metric <- metrics[[i]][2]
+#     
+#     # Default axis labels
+#     xlab <- if (!is.null(x_label[[i]])) x_label[[i]] else if (log_transform) paste0("log(1 + ", x_metric, ")") else x_metric
+#     ylab <- if (!is.null(y_label[[i]])) y_label[[i]] else if (log_transform) paste0("log(1 + ", y_metric, ")") else y_metric
+#     
+#     plot_data <- data
+#     if (log_transform) {
+#       plot_data[[x_metric]] <- log1p(plot_data[[x_metric]])
+#       plot_data[[y_metric]] <- log1p(plot_data[[y_metric]])
+#     }
+#     
+#     p <- ggplot(plot_data, aes_string(x = x_metric, y = y_metric)) +
+#       geom_point(color = "deepskyblue4", alpha = 0.3, size = 0.8) +
+#       labs(x = xlab, y = ylab) +
+#            #, title = if (!is.null(titles)) titles[i] else paste(x_metric, "vs", y_metric)) +
+#       theme_classic(base_size = 12)
+#     
+#     if (add_lm) {
+#       p <- p + geom_smooth(method = "lm", se = FALSE, color = "red", linetype = "solid", linewidth = 1)
+#     }
+#     
+#     plots[[i]] <- p
+#   }
+#   
+#   # Arrange plots in 2x2 grid with shared guides
+#   combined_plot <- (plots[[1]] | plots[[2]]) / (plots[[3]] | plots[[4]])
+#   
+#   print(combined_plot)
+#   
+#   if (!is.null(save_path)) {
+#     ggsave(filename = save_path, plot = combined_plot, width = width, height = height, dpi = dpi)
+#     message("Plot saved to: ", save_path)
+#   }
+# }
+# 
+# 
+# plot_4metric_scatter(
+#   data = all_metrics,
+#   metrics = list(
+#     c("raoq", "fdr"),
+#     c("cluster_simpson", "fdr"),
+#     c("raoq", "cluster_simpson"),
+#     c("cluster_simpson", "nspec")
+#   ),
+#   x_label = c("RaoQ", "Funct. Simp.", "RaoQ", "Funct. Simp."),
+#   y_label = c("FDR", "FDR", "Funct. Simp.", "N. Species"),
+#   log_transform = FALSE,
+#   add_lm = FALSE,
+#   titles = c("", "", "", ""),
+#   save_path = "output/figures/diversity_metrics.png", dpi = 600
+# )
 
