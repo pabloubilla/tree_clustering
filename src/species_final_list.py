@@ -23,13 +23,20 @@ def load_data():
     )
     df_metrics = pd.read_csv(metrics_path)
 
-    return df_sites, df_species, df_clusters, df_metrics
+    # data\taxonomic_information.csv
+    df_taxonomic = pd.read_csv("data/taxonomic_information.csv")
+    df_taxonomic['accepted_bin'] = df_taxonomic['accepted_bin'].str.replace(" ", "_")
+
+    return df_sites, df_species, df_clusters, df_metrics, df_taxonomic
 
 
-def process_data(df_sites, df_species, df_clusters):
+def process_data(df_sites, df_species, df_clusters, df_taxonomic):
     """Merge cluster info into site data and count unique clusters and species per grid."""
     df_species['cluster'] = df_clusters
     df_sites = df_sites.merge(df_species[['accepted_bin', 'cluster']], on='accepted_bin', how='left')
+
+    # merge taxonomic info
+    df_sites = df_sites.merge(df_taxonomic[['accepted_bin', 'order']], on='accepted_bin', how='left')
 
     output_path = os.path.join(
         "output/spatial_analysis"
@@ -45,6 +52,15 @@ def process_data(df_sites, df_species, df_clusters):
         .nunique()
         .reset_index(name='nclust')
     )
+
+    # count unique orders per grid
+    grid_clusters['norder'] = (
+        df_sites.groupby('grid_id')['order']
+        .nunique()
+        .reset_index(name='norder')['norder']
+    )
+    
+
 
     # Count unique species per grid
     grid_species = (
@@ -114,8 +130,8 @@ def save_output(df_metrics):
 
 
 def main():
-    df_sites, df_species, df_clusters, df_metrics = load_data()
-    df_sites, grid_clusters = process_data(df_sites, df_species, df_clusters)
+    df_sites, df_species, df_clusters, df_metrics, df_taxonomic = load_data()
+    df_sites, grid_clusters = process_data(df_sites, df_species, df_clusters, df_taxonomic)
 
     # Merge cluster count into metrics
     df_metrics = df_metrics.merge(grid_clusters, on='grid_id', how='left')

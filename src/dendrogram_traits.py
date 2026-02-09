@@ -77,7 +77,7 @@ def compute_distance_matrix(consensus_matrix):
 #     plt.savefig(output)
 
 
-def plot_heatmap(Z, num_clusters, centroids, output):
+def plot_heatmap(Z, num_clusters, centroids, output, savefig = True):
     """ Plot heatmap for cluster centroids with capped color bar """
     
     # Cap the values in the centroids at ±3s
@@ -119,11 +119,11 @@ def plot_heatmap(Z, num_clusters, centroids, output):
     # Adjust spacing between plots
     # plt.subplots_adjust(hspace=0.05, wspace=0.05)
     plt.tight_layout()
-    plt.savefig(output)
+    if savefig: plt.savefig(output)
     plt.close()
 
 
-def plot_heatmap_with_std(Z, num_clusters, centroids, output):
+def plot_heatmap_with_std(Z, num_clusters, centroids, output, savefig = True):
     """Plot heatmap for cluster centroids with capped color bar and standard deviation plot."""
     
     # Cap the values in the centroids at ±3s
@@ -174,7 +174,7 @@ def plot_heatmap_with_std(Z, num_clusters, centroids, output):
 
     # Adjust spacing between plots
     plt.tight_layout()
-    plt.savefig(output)
+    if savefig: plt.savefig(output)
     plt.close()
 
 
@@ -195,7 +195,7 @@ def plot_determinant_heatmap(det_covs_df, output):
 
     plt.savefig(output)
 
-def plot_heatmap_ordered_traits(Z, num_clusters, centroids, trait_order, output):
+def plot_heatmap_ordered_traits(Z, num_clusters, centroids, trait_order, output, savefig = True):
     """ Plot heatmap for cluster centroids with different colormaps for trait groups """
     # Flatten the trait_order list to get the original order of traits
     flat_trait_order = [item for sublist in trait_order for item in sublist]
@@ -247,8 +247,8 @@ def plot_heatmap_ordered_traits(Z, num_clusters, centroids, trait_order, output)
         start_col = end_col
     
     plt.subplots_adjust(wspace=0.05, hspace=0.01)
-    plt.savefig(output)
-    # plt.show()
+    if savefig: plt.savefig(output)
+    plt.show()
 
 
 def plot_centroids(centroids, trait_clusters):
@@ -282,120 +282,127 @@ def max_min_cluster(group):
         'Min Cluster': group.idxmin()
     })
 
+if __name__ == "__main__":
+    trait_clusters = [['Leaf density', 'Wood density'],
+                    ['Root depth'],
+                    ['Specific leaf area', 'Leaf thickness', 'Leaf N per mass'],
+                    ['Leaf K per mass', 'Leaf P per mass'],
+                    ['Stem conduit diameter', 'Leaf Vcmax per dry mass', 'Stomatal conductance', 'Leaf area'],
+                    ['Crown height', 'Crown diameter', 'Tree height'],
+                    ['Seed dry mass'],
+                    ['Bark thickness', 'Stem diameter']]
 
-trait_clusters = [['Leaf density', 'Wood density'],
-                   ['Root depth'],
-                   ['Specific leaf area', 'Leaf thickness', 'Leaf N per mass'],
-                   ['Leaf K per mass', 'Leaf P per mass'],
-                   ['Stem conduit diameter', 'Leaf Vcmax per dry mass', 'Stomatal conductance', 'Leaf area'],
-                   ['Crown height', 'Crown diameter', 'Tree height'],
-                   ['Seed dry mass'],
-                   ['Bark thickness', 'Stem diameter']]
+    shortened_trait_names = {
+        'Leaf density': 'Leaf Dens.',
+        'Wood density': 'Wood Dens.',
+        'Root depth': 'Root Depth',
+        'Specific leaf area': 'Spec. Leaf Area',
+        'Leaf thickness': 'Leaf Thick.',
+        'Leaf N per mass': 'Leaf N/Mass',
+        'Leaf K per mass': 'Leaf K/Mass',
+        'Leaf P per mass': 'Leaf P/Mass',
+        'Stem conduit diameter': 'Stem Cond. Diam.',
+        'Leaf Vcmax per dry mass': 'Leaf Vcmax/Mass',
+        'Stomatal conductance': 'Stomatal Cond.',
+        'Leaf area': 'Leaf Area',
+        'Crown height': 'Crown Height',
+        'Crown diameter': 'Crown Diam.',
+        'Tree height': 'Tree Height',
+        'Seed dry mass': 'Seed Mass',
+        'Bark thickness': 'Bark Thick.',
+        'Stem diameter': 'Stem Diam.'
+    }
 
-shortened_trait_names = {
-    'Leaf density': 'Leaf Dens.',
-    'Wood density': 'Wood Dens.',
-    'Root depth': 'Root Depth',
-    'Specific leaf area': 'Spec. Leaf Area',
-    'Leaf thickness': 'Leaf Thick.',
-    'Leaf N per mass': 'Leaf N/Mass',
-    'Leaf K per mass': 'Leaf K/Mass',
-    'Leaf P per mass': 'Leaf P/Mass',
-    'Stem conduit diameter': 'Stem Cond. Diam.',
-    'Leaf Vcmax per dry mass': 'Leaf Vcmax/Mass',
-    'Stomatal conductance': 'Stomatal Cond.',
-    'Leaf area': 'Leaf Area',
-    'Crown height': 'Crown Height',
-    'Crown diameter': 'Crown Diam.',
-    'Tree height': 'Tree Height',
-    'Seed dry mass': 'Seed Mass',
-    'Bark thickness': 'Bark Thick.',
-    'Stem diameter': 'Stem Diam.'
-}
+    method = sys.argv[1]
+    consensus_data = 'full_data'
+    # consensus_data = 'Wood density_Leaf area'
+    output_dir = os.path.join('output', 'consensus', method, consensus_data)
+    output_file = 'centroid_trait_statistics.csv'
+    trait_stats_dir = os.path.join(output_dir,output_file)
 
-method = sys.argv[1]
-consensus_data = 'full_data'
-# consensus_data = 'Wood density_Leaf area'
-output_dir = os.path.join('output', 'consensus', method, consensus_data)
+    # # check if trait_stats_dir exists, else calculate the centroids
+    # if not os.path.exists(trait_stats_dir):
+    print('Processing Consensus...')
+    consensus_matrix = pd.read_parquet(os.path.join(output_dir, 'consensus_matrix.parquet')).values
+    distance_matrix = 1 - consensus_matrix
+    np.fill_diagonal(distance_matrix, 0)
+    num_clusters = 42 # OPTIMAL (this should be automatically determined)
+    df_traits = pd.read_csv('data/traits_pred_log.csv', index_col = 0)
+    trait_columns = df_traits.columns
 
-print('Processing Consensus...')
-consensus_matrix = pd.read_parquet(os.path.join(output_dir, 'consensus_matrix.parquet')).values
-distance_matrix = 1 - consensus_matrix
-np.fill_diagonal(distance_matrix, 0)
-num_clusters = 42 # OPTIMAL
-df_traits = pd.read_csv('data/traits_pred_log.csv', index_col = 0)
-trait_columns = df_traits.columns
+    clusters, ordered_consensus_matrix, Z = hierarchical_clustering(distance_matrix, consensus_matrix, num_clusters)
+    # clusters = pd.read_csv(os.path.join(output_dir, 'final_clusters.csv'), header = None).values ## PREASSIGNED
+    df_traits_standard = df_traits.copy()
+    df_traits_standard[trait_columns] = StandardScaler().fit_transform(df_traits_standard)
 
-clusters, ordered_consensus_matrix, Z = hierarchical_clustering(distance_matrix, consensus_matrix, num_clusters)
-# clusters = pd.read_csv(os.path.join(output_dir, 'final_clusters.csv'), header = None).values ## PREASSIGNED
-df_traits_standard = df_traits.copy()
-df_traits_standard[trait_columns] = StandardScaler().fit_transform(df_traits_standard)
-
-# assign clusters
-df_traits['Cluster'] = clusters
-df_traits_standard['Cluster'] = clusters
-centroids_standard = df_traits_standard.groupby('Cluster').mean()
-centroids_standard.columns = [shortened_trait_names.get(trait, trait) for trait in centroids_standard.columns]
-
-
-# Apply the function to each column in centroids_standard
-centroid_stats = centroids_standard.apply(max_min_cluster).T
-# # Calculate statistics (mean, std, max, min) for each trait across the clusters in centroids_standard
-# centroid_stats = centroids_standard.agg(['mean', 'std', 'max', 'min']).T
-# Save the centroid statistics to a CSV file
-output_file = 'centroid_trait_statistics.csv'
-centroid_stats.to_csv(os.path.join(output_dir,output_file))
+    # assign clusters
+    df_traits['Cluster'] = clusters
+    df_traits_standard['Cluster'] = clusters
+    centroids_standard = df_traits_standard.groupby('Cluster').mean()
+    centroids_standard.columns = [shortened_trait_names.get(trait, trait) for trait in centroids_standard.columns]
 
 
-# determinants
-# Initialize a dictionary to store determinants
-plot_det = False
-if plot_det:
-    det_covs = {}
-    # Calculate the determinant of the covariance matrix for each cluster
-    for cluster in np.unique(clusters):
-        print(f'Determinant {cluster}')
-        # Select the data for the current cluster
-        cluster_data = df_traits.loc[df_traits['Cluster'] == cluster, trait_columns]
-        
-        # Compute the covariance matrix
-        cov_matrix = np.cov(cluster_data, rowvar=False)
-        
-        # Calculate the determinant of the covariance matrix
-        determinant = np.linalg.det(cov_matrix)
-        
-        # Store the determinant in the dictionary
-        det_covs[cluster] = determinant
-    # Convert the dictionary to a DataFrame
-    det_covs_df = pd.DataFrame(list(det_covs.items()), columns=['Cluster', 'Determinant'])
-    plot_determinant_heatmap(det_covs_df, os.path.join(output_dir, 'images', 'det_covs.pdf'))
-
-plot_heatmap(Z, num_clusters, centroids_standard, os.path.join(output_dir, 'images', 'functional_groups_dendrogram.pdf'))
-plot_heatmap_with_std(Z, num_clusters, centroids_standard, os.path.join(output_dir, 'images', 'functional_groups_dendrogram_std.pdf'))
-# plot_heatmap_ordered_traits(Z, num_clusters, centroids, trait_clusters, os.path.join(output_dir, 'images', 'functional_groups_dendogram_colored_traits.pdf'))
+    # Apply the function to each column in centroids_standard
+    centroid_stats = centroids_standard.apply(max_min_cluster).T
+    # # Calculate statistics (mean, std, max, min) for each trait across the clusters in centroids_standard
+    # centroid_stats = centroids_standard.agg(['mean', 'std', 'max', 'min']).T
+    # Save the centroid statistics to a CSV file
+    centroid_stats.to_csv(trait_stats_dir)
 
 
-# # Create a figure with two subplots: one for the dendrogram and one for the heatmap
-# fig = plt.figure(figsize=(10, 8))
-# ax1 = fig.add_axes([0.1, 0.1, 0.2, 0.8])  # Dendrogram on the left
-# ax2 = fig.add_axes([0.3, 0.1, 0.6, 0.8])  # Heatmap on the right
+    # determinants
+    # Initialize a dictionary to store determinants
+    plot_det = False
+    if plot_det:
+        det_covs = {}
+        # Calculate the determinant of the covariance matrix for each cluster
+        for cluster in np.unique(clusters):
+            print(f'Determinant {cluster}')
+            # Select the data for the current cluster
+            cluster_data = df_traits.loc[df_traits['Cluster'] == cluster, trait_columns]
+            
+            # Compute the covariance matrix
+            cov_matrix = np.cov(cluster_data, rowvar=False)
+            
+            # Calculate the determinant of the covariance matrix
+            determinant = np.linalg.det(cov_matrix)
+            
+            # Store the determinant in the dictionary
+            det_covs[cluster] = determinant
+        # Convert the dictionary to a DataFrame
+        det_covs_df = pd.DataFrame(list(det_covs.items()), columns=['Cluster', 'Determinant'])
+        plot_determinant_heatmap(det_covs_df, os.path.join(output_dir, 'images', 'det_covs.pdf'))
 
-# # Plot the dendrogram
-# dendro = sch.dendrogram(Z, orientation='left', ax=ax1, no_labels=True)
+    plot_heatmap(Z, num_clusters, centroids_standard, 
+                 os.path.join(output_dir, 'images', 'functional_groups_dendrogram.pdf'),
+                 savefig = False)
+    plot_heatmap_with_std(Z, num_clusters, centroids_standard, 
+                          os.path.join(output_dir, 'images', 'functional_groups_dendrogram_std.pdf'),
+                          savefig = False)
+    # plot_heatmap_ordered_traits(Z, num_clusters, centroids, trait_clusters, os.path.join(output_dir, 'images', 'functional_groups_dendogram_colored_traits.pdf'))
 
-# # Reorder the rows in cluster_means to match the dendrogram order
-# # dendro_leaves = dendro['leaves']
-# # centroids = centroids.iloc[dendro_leaves]
 
-# # Plot the heatmap
-# sns.heatmap(centroids, ax=ax2, cmap='viridis', cbar_kws={'orientation': 'horizontal'})
+    # # Create a figure with two subplots: one for the dendrogram and one for the heatmap
+    # fig = plt.figure(figsize=(10, 8))
+    # ax1 = fig.add_axes([0.1, 0.1, 0.2, 0.8])  # Dendrogram on the left
+    # ax2 = fig.add_axes([0.3, 0.1, 0.6, 0.8])  # Heatmap on the right
 
-# # Remove the y-axis labels from the heatmap to avoid redundancy
-# ax2.set_yticklabels([])
-# ax2.set_ylabel('')
+    # # Plot the dendrogram
+    # dendro = sch.dendrogram(Z, orientation='left', ax=ax1, no_labels=True)
 
-# # Show the plot
-# plt.show()
+    # # Reorder the rows in cluster_means to match the dendrogram order
+    # # dendro_leaves = dendro['leaves']
+    # # centroids = centroids.iloc[dendro_leaves]
+
+    # # Plot the heatmap
+    # sns.heatmap(centroids, ax=ax2, cmap='viridis', cbar_kws={'orientation': 'horizontal'})
+
+    # # Remove the y-axis labels from the heatmap to avoid redundancy
+    # ax2.set_yticklabels([])
+    # ax2.set_ylabel('')
+
+    # # Show the plot
+    # plt.show()
 
 
 

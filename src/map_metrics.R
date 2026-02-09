@@ -96,7 +96,7 @@ plot_two_rasters <- function(r1, r2,
     # Open PNG device and replay the recorded plot
     png(save_path, width = 6.3, height = 4, units = "in", res = 300)
     replayPlot(p)
-    dev.off()
+    #dev.off()
     
     message("Saved to: ", save_path)
   
@@ -108,6 +108,21 @@ plot_two_rasters(raster_list[['nspec']], raster_list[['nclust']],
                  #save_path = NULL
                  save_path = 'output/figures/nspec_nclust_map.png'
                  )
+
+plot_two_rasters(log(raster_list[['nspec']]), raster_list[['nclust']],
+                 'Log Num. of Species', 'Num. of Clusters',
+                 save_path = NULL
+                 #save_path = 'output/figures/nspec_nclust_map.png'
+)
+
+
+
+plot_two_rasters(raster_list[['norder']], raster_list[['nclust']],
+                 'Num. of Taxonomic Groups \n (Order)', 'Num. of Functional Groups',
+                 #save_path = NULL
+                 save_path = 'output/figures/norder_nclust_map.png'
+)
+
 
 
 # Generalized scatterplot function for any two metrics
