@@ -1,6 +1,6 @@
 # Tree Species Clustering for Determining Functional Groups
 
-This repository contains the code and structure for my MSc dissertation at University College London (UCL), as part of the MSc in Ecology and Data Science. The project investigates the clustering of tree species into functional groups based on trait data. The aim is to explore ecological diversity patterns and determine how many distinct "types" of trees exist, based on their traits.
+This repository contains the code and structure for the paper "Functional group classification using consensus clustering". The project investigates the clustering of tree species into functional groups based on trait data. The aim is to explore ecological diversity patterns and determine how many distinct "types" of trees exist, based on their traits.
 
 **Note:** Some files and datasets are omitted from this repository due to large file sizes. Please contact the author for access if needed.
 
