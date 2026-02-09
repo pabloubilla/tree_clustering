@@ -20,6 +20,8 @@ vnc.txt
 /diagram
 /archive
 
+.venv/
+
 # data
 data/phylogenetic_distance_matrix_BGCI_full.arrow
 data/Estimated_trait_table_with_monos.csv
