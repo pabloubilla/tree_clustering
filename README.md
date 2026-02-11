@@ -4,8 +4,6 @@ This repository contains the code and structure for my MSc dissertation at Unive
 
 **Note:** Some files and datasets are omitted from this repository due to large file sizes. Please contact the author for access if needed.
 
-This project is part of an ongoing scientific publication based on my MSc thesis work.
-
 ---
 
 ## Repository Structure
