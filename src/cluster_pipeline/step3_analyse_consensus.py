@@ -6,15 +6,20 @@ import seaborn as sns
 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-plt.rcParams['font.family'] = 'Arial'
+# plt.rcParams['font.family'] = 'Arial'
 plt.rc('font', size=8)  
 
 from sklearn.metrics import silhouette_score
 import scipy.cluster.hierarchy as sch
 from scipy.spatial.distance import squareform
+from scipy.cluster.hierarchy import cut_tree
 
 from joblib import Parallel, delayed
 import sys
+
+from utils import str_to_bool, make_method_label
+
+import argparse
 
 def linewidth():
     return 6.30045
@@ -40,11 +45,13 @@ def compute_distance_matrix(consensus_matrix):
     np.fill_diagonal(distance_matrix, 0)
     return distance_matrix
 
-def hierarchical_clustering(distance_matrix, consensus_matrix, num_clusters):
+def hierarchical_clustering(distance_matrix, consensus_matrix, num_clusters, linkage_method='ward'):
     """ Perform hierarchical clustering and return the clusters and ordered consensus matrix """
     condensed_distance_matrix = squareform(distance_matrix)
-    Z = sch.linkage(condensed_distance_matrix, method='ward')
-    clusters = sch.fcluster(Z, t=num_clusters, criterion='maxclust')
+    Z = sch.linkage(condensed_distance_matrix, method=linkage_method)
+    # clusters = sch.fcluster(Z, t=num_clusters, criterion='maxclust')
+    labels0 = cut_tree(Z, n_clusters=[num_clusters]).reshape(-1)  # labels 0..k-1
+    clusters = labels0 + 1                              # make 1..k
     order = np.argsort(clusters)
     ordered_consensus_matrix = consensus_matrix[order, :][:, order]
     return clusters, ordered_consensus_matrix
@@ -284,27 +291,28 @@ def plot_summary_heatmap_w_squares(consensus_summary_matrix, cluster_sizes, outp
 
 
 
-def calculate_silhouette_score(distance_matrix, n_clust):
+def calculate_silhouette_score(distance_matrix, n_clust, linkage_method='ward'):
     """ Calculate the silhouette score for a given number of clusters """
-    print(f'Calculating for {n_clust} clusters')
+    print(f'Calculating for {n_clust} clusters with linkage method {linkage_method}...')
     condensed_distance_matrix = squareform(distance_matrix)
-    Z = sch.linkage(condensed_distance_matrix, method='ward')
-    clusters = sch.fcluster(Z, t=n_clust, criterion='maxclust')
+    Z = sch.linkage(condensed_distance_matrix, method=linkage_method)
+    labels0 = cut_tree(Z, n_clusters=[n_clust]).reshape(-1)  # labels 0..k-1
+    clusters = labels0 + 1                              # make 1..k
     score = silhouette_score(distance_matrix, clusters, metric='precomputed')
     print(score)
     return score
 
-def analyze_clusters(distance_matrix, consensus_matrix, n_cluster_list, output, method, n_jobs=1):
+def analyze_clusters(distance_matrix, consensus_matrix, n_cluster_list, output, method, linkage_method='ward', n_jobs=1):
     """ Analyze different cluster sizes and plot silhouette scores """
     
     output_images = os.path.join(output, 'images')
 
     if n_jobs == 1:
         # Sequential computation of silhouette scores
-        silhouette_score_list = [calculate_silhouette_score(distance_matrix, n_clust) for n_clust in n_cluster_list]
+        silhouette_score_list = [calculate_silhouette_score(distance_matrix, n_clust, linkage_method) for n_clust in n_cluster_list]
     else:
         # Parallel computation of silhouette scores
-        silhouette_score_list = Parallel(n_jobs=n_jobs)(delayed(calculate_silhouette_score)(distance_matrix, n_clust) for n_clust in n_cluster_list)
+        silhouette_score_list = Parallel(n_jobs=n_jobs)(delayed(calculate_silhouette_score)(distance_matrix, n_clust, linkage_method) for n_clust in n_cluster_list)
 
 
     # Store results in a DataFrame
@@ -336,12 +344,12 @@ def analyze_clusters(distance_matrix, consensus_matrix, n_cluster_list, output, 
     
     return best_num_clusters
 
-def save_or_load_summary_matrix(consensus_matrix, clusters, output_dir):
+def save_or_load_summary_matrix(consensus_matrix, clusters, output_dir, use_summary = False):
     summary_matrix_file = os.path.join(output_dir, 'summary_consensus_matrix.csv')
     cluster_sizes_file = os.path.join(output_dir, 'cluster_sizes.csv')
     
     # Check if files exist
-    if os.path.exists(summary_matrix_file) and os.path.exists(cluster_sizes_file):
+    if use_summary and os.path.exists(summary_matrix_file) and os.path.exists(cluster_sizes_file):
         print('Files found. Loading saved data.')
         summary_consensus_matrix = pd.read_csv(summary_matrix_file, index_col=0).values
         cluster_sizes = pd.read_csv(cluster_sizes_file, index_col=0).values.flatten()
@@ -354,45 +362,62 @@ def save_or_load_summary_matrix(consensus_matrix, clusters, output_dir):
     return summary_consensus_matrix, cluster_sizes
 
 def main():
-    method = sys.argv[1]
-    if len(sys.argv) == 3:
-        n_jobs = int(sys.argv[2])
-    else:
-        n_jobs = 1
-    
-    consensus_data = 'small_100'
-    # consensus_data = 'Wood density_Leaf area'
-    output_dir = os.path.join('output', 'consensus', method, consensus_data)
-    images_dir = os.path.join(output_dir, 'images')
 
-    # clusters to try
-    # n_cluster_list = [i*5 for i in range(1,21)]
-    # n_cluster_list = [i for i in range(2,120)]
-    n_cluster_list = [2,3,4,5]
-    # n_cluster_list = [i for i in [100,200,300,400,500]]
-    # n_cluster_list = [2,3,4,5,6]
+    parser = argparse.ArgumentParser(description='Run clustering with a specified seed and method.')
+    parser.add_argument('--method', type=str, default='gmm', help='Clustering method to use.')
+    parser.add_argument('--error_weight', type=float, default=1.0, help='Error weight for sampling.')
+    parser.add_argument('--random_assign', type = str_to_bool, default = False)
+    parser.add_argument('--scale', type = str_to_bool, default = True)
+    parser.add_argument('--n_jobs', type=int, default=1, help='Number of parallel jobs for silhouette score calculation.')
+    parser.add_argument('--consensus_data', type=str, default='full_data', help='Whether to use the full data or only the two traits for the consensus matrix.')
+    parser.add_argument('--linkage_method', type=str, default='ward', help='Linkage method for hierarchical clustering.')
+    args = parser.parse_args()
+
+    method = args.method
+    error_weight = args.error_weight
+    random_assign = args.random_assign
+    scale = args.scale
+    method_label = make_method_label(method, error_weight, random_assign, scale)
+    linkage_method = args.linkage_method
+
     
+    print('Running CPU original version')
+
+    consensus_data = args.consensus_data
+
+    # jobs
+    n_jobs = args.n_jobs
+
+    # consensus_data = 'Wood density_Leaf area'
+    output_dir = os.path.join('output', 'consensus', method_label, consensus_data)
+    results_dir = os.path.join(output_dir, linkage_method)
+    os.makedirs(results_dir, exist_ok=True)
+    images_dir = os.path.join(results_dir, 'images')        
     # Create the images directory if it doesn't exist
     os.makedirs(images_dir, exist_ok=True)
-
+    print('Loading consensus matrix...')
     consensus_matrix = load_consensus_matrix(output_dir)
     print('Matrix subsample:')
-    print(consensus_matrix[100:110, 100:110])
+    range_to_print = min(5, consensus_matrix.shape[0])
+    print(consensus_matrix[:range_to_print, :range_to_print])
     # max_values = np.max(np.where(np.eye(consensus_matrix.shape[0], dtype=bool), -np.inf, consensus_matrix), axis=1)
     # sns.displot(max_values)
+
+    max_cluster_try = min(120, consensus_matrix.shape[0]-1)
+    n_cluster_list = [i for i in range(2,max_cluster_try+1)]
 
     distance_matrix = compute_distance_matrix(consensus_matrix)
 
     print('Analyzing cluster sizes...')
     # Get best nuber of clusters using silhouette score
-    best_num_clusters = analyze_clusters(distance_matrix, consensus_matrix, n_cluster_list, output_dir, method, n_jobs)
-    print('USING PREDEFINED NUMBER OF CLUSTERS!!!')
+    best_num_clusters = analyze_clusters(distance_matrix, consensus_matrix, n_cluster_list, results_dir, method, linkage_method=linkage_method, n_jobs = n_jobs)
+    # print('USING PREDEFINED NUMBER OF CLUSTERS!!!')
     # best_num_clusters = 42
     # best_num_clusters = 50
 
     print(f'Best number of clusters: {best_num_clusters}')
     print('Performing hierarchical clustering...')
-    clusters, ordered_consensus_matrix = hierarchical_clustering(distance_matrix, consensus_matrix, best_num_clusters)
+    clusters, ordered_consensus_matrix = hierarchical_clustering(distance_matrix, consensus_matrix, best_num_clusters, linkage_method=linkage_method)
 
     # save clusters
     pd.DataFrame(clusters).to_csv(os.path.join(output_dir, 'final_clusters.csv'), index=False, header=False)
@@ -408,7 +433,7 @@ def main():
     # plot_heatmap(ds_consensus_matrix, os.path.join(images_dir, f'heatmap_G{best_num_clusters}.pdf'), 'Heatmap of Ordered Distance Matrix')
 
     print('Plotting Summary')
-    summary_consensus_matrix, cluster_sizes = save_or_load_summary_matrix(consensus_matrix, clusters, output_dir)
+    summary_consensus_matrix, cluster_sizes = save_or_load_summary_matrix(consensus_matrix, clusters, results_dir, use_summary = False)
     print(summary_consensus_matrix)
    
     sorted = False
@@ -423,95 +448,8 @@ def main():
         'Avg Consensus': np.diag(summary_consensus_matrix)
     }
     cluster_df = pd.DataFrame(cluster_info)
-    cluster_df.to_csv(os.path.join(output_dir, 'clusters_info.csv'), index=False)
+    cluster_df.to_csv(os.path.join(results_dir, 'clusters_info.csv'), index=False)
 
 if __name__ == '__main__':
     main()
-
-
-
-# import pandas as pd
-# import numpy as np
-# import pyarrow as pa
-# import os
-# import seaborn as sns
-# import matplotlib.pyplot as plt
-# from sklearn.metrics import silhouette_score
-
-# import scipy.cluster.hierarchy as sch
-# from scipy.spatial.distance import squareform
-
-
-# def downsample_matrix(matrix, factor):
-#     """ Downsample a matrix by averaging over factor x factor blocks """
-#     # Compute the size of the downsampled matrix
-#     new_size = matrix.shape[0] // factor, matrix.shape[1] // factor
-#     downsampled = np.zeros(new_size)
-    
-#     for i in range(new_size[0]):
-#         for j in range(new_size[1]):
-#             downsampled[i, j] = np.mean(matrix[i*factor:(i+1)*factor, j*factor:(j+1)*factor])
-    
-#     return downsampled
-
-
-# # output directory
-# method = 'hdbscan_error0.5'
-# output_dir = os.path.join('output',  'consensus', method, 'full_data')
-# output_images = os.path.join('output', 'images')
-# # read consensus matrix
-# consensus_matrix = pd.read_parquet(os.path.join(output_dir, 'consensus_matrix.parquet')).values
-# # print a portion of the matrix
-# print('Matrix subsample:')
-# print(consensus_matrix[100:110,100:110]) ## something is going on with the diagonal (it should be 1 or 0)
-# distance_matrix = 1 - consensus_matrix
-# np.fill_diagonal(distance_matrix, 0)
-
-# # ### plot distnce matrix
-# # sns.heatmap(downsized_consensus, cmap='Reds')
-# # plt.savefig(os.path.join(output_images,'consensus_matrix_heatmap.pdf'))
-
-# # Convert to condensed distance matrix for clustering
-# condensed_distance_matrix = squareform(distance_matrix)
-
-
-# # n_cluster_list = [5,10,15,20,25,30,35,40]
-
-# # silhouette_score_list = [] 
-# # for n_clust in n_cluster_list:
-# #     print(f'Calculating for {n_clust} clusters')
-# #     Z = sch.linkage(condensed_distance_matrix, method = 'ward')
-# #     clusters = sch.fcluster(Z, t = n_clust, criterion='maxclust')
-# #     score = silhouette_score(distance_matrix, clusters, metric='precomputed')
-# #     print(score)
-# #     silhouette_score_list.append(score)
-
-# # plt.plot(n_cluster_list, silhouette_score_list)
-# # plt.savefig(os.path.join(output_images, f'silhoutte_score_{method}.pdf'))
-# # plt.clf()
-
-
-
-
-# num_clusters = 20
-
-# # Perform hierarchical clustering
-# print('Performing hierarchical...')
-# Z = sch.linkage(condensed_distance_matrix, method='ward')
-
-# # Retrieve cluster labels at a given cutoff (not super sure how this works)
-# clusters = sch.fcluster(Z, t = num_clusters, criterion='maxclust')
-
-# # Order the distance matrix by clusters
-# order = np.argsort(clusters)  # This gives indices that sort the clusters
-# ordered_consensus_matrix = consensus_matrix[order, :][:, order]
-
-# ds_ordered_consensus_matrix = downsample_matrix(ordered_consensus_matrix, 50)
-# print('Shape of downsize: ', ds_ordered_consensus_matrix.shape)
-# # Plot the heatmap
-# print('Plotting...')
-# plt.figure(figsize=(8, 5))
-# sns.heatmap(ds_ordered_consensus_matrix, cmap='Reds', xticklabels=False, yticklabels=False)
-# plt.title('Heatmap of Ordered Distance Matrix')
-# plt.savefig(os.path.join(output_images, f'heatmap_ordered_{method}.pdf'))
 
