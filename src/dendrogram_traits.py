@@ -313,10 +313,10 @@ if __name__ == "__main__":
         'Stem diameter': 'Stem Diam.'
     }
 
-    method = sys.argv[1]
+    method_folder = 'full_run_02032026/gmm_error1.0_scl'
     consensus_data = 'full_data'
     # consensus_data = 'Wood density_Leaf area'
-    output_dir = os.path.join('output', 'consensus', method, consensus_data)
+    output_dir = os.path.join('output', 'consensus', method_folder, consensus_data)
     output_file = 'centroid_trait_statistics.csv'
     trait_stats_dir = os.path.join(output_dir,output_file)
 

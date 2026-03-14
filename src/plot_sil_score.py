@@ -21,7 +21,7 @@ plt.figure(figsize=(6.30045, 6.30045 *0.43))
 
 for i in range(len(methods)):
     # Construct the file path
-    file_path = f'output/consensus/{methods[i]}/full_data/silhouette_scores_{methods[i]}.csv'
+    file_path = f'output/consensus/{methods[i]}/full_data/silhouette_scores_gmm.csv'
     
     # Read the CSV file
     df = pd.read_csv(file_path)
