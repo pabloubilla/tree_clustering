@@ -52,7 +52,7 @@ Example:
 ### Running the full experiment pipeline
 
 For convenience, the repository includes a helper script:
-`run_experiments.sh`.
+`src/pipeline_clusters.sh`.
 
 It allows running the full experiment pipeline and controlling parameter
 combinations (e.g., `scale`, `random_assign`, seeds) from a single
@@ -61,11 +61,31 @@ place.
 Run with:
 
 ``` bash
-chmod +x run_experiments.sh
-./run_experiments.sh
+chmod +x src/pipeline_clusters.sh
+src/pipeline_clusters.sh
 ```
 
-------------------------------------------------------------------------
+---
+
+## Download Data
+
+The required dataset can be downloaded from the following link:
+
+https://figshare.com/s/791ffaa164de494f7488  
+
+After downloading, place the files into the `data/` directory.
+
+---
+
+## Processed Data
+
+To prepare the data for the clustering pipeline, run the following script:
+
+```bash
+src/prepare_traits.py
+```
+
+---
 
 ## Contact
 
