@@ -208,7 +208,7 @@ def main(random_seed, method, error_weight = 1.0, n_components=5, plot=True,
     n_assign = 10
     if method == 'hdbscan': random_assign = False # Hdbscan is always deterministic
     # component_list = [10 + 2*i for i in range(30)]
-    component_list = [i for i in range(2,20)]
+    component_list = [i for i in range(2,61)]
     # component_list = [20,25,30,35,40,45,50,55,60,65,70]
     # component_list = [2,4,6]
 
@@ -242,10 +242,6 @@ def main(random_seed, method, error_weight = 1.0, n_components=5, plot=True,
 
     error_dic = pickle.load(open(os.path.join(data_dir, 'error_pred_dist.pkl'), 'rb'))
 
-    if small_data:
-        index_list = df_traits_pred.index[:subset_size]
-        df_traits_pred = df_traits_pred.loc[index_list,:]
-    N_obs = df_traits_pred.shape[0]
 
     gymnosperm = pd.read_csv(os.path.join(data_dir, 'gymnosperms.csv'), index_col=0)['accepted_bin'].values
     angiosperm = pd.read_csv(os.path.join(data_dir, 'angiosperms.csv'), index_col=0)['accepted_bin'].values
@@ -254,7 +250,36 @@ def main(random_seed, method, error_weight = 1.0, n_components=5, plot=True,
     N_gymnosperm = gymnosperm.shape[0]
     N_angiosperm = angiosperm.shape[0]
 
+
+
+
+
+    N_obs = df_traits_pred.shape[0]
+
     X_s = pd.DataFrame(np.ones(df_traits_pred.shape) * np.nan, columns=df_traits_pred.columns, index=df_traits_pred.index)
+
+    if small_data:
+        # rng_small_data = np.random.default_rng(123)
+        # # index_list = df_traits_pred.index[:subset_size]
+        # # df_traits_pred = df_traits_pred.loc[index_list,:]
+        # # randomly sample subset_size indices
+        # index_list = rng_small_data.choice(df_traits_pred.index, size=subset_size, replace=False)
+        # df_traits_pred = df_traits_pred.loc[index_list,:]
+
+        if subset_size == 0:
+            # take gymnosperms and 20 first angiosperms
+            index_list = np.concatenate([gymnosperm, angiosperm[:800]])
+            print(f"Using {len(gymnosperm)} gymnosperms and 800 angiosperms for small data experiment (total {len(index_list)})")
+            X_s = X_s.loc[index_list,:]
+
+            # reduce angiosperm list to 800 first
+            angiosperm = angiosperm[:800]
+
+            # reduce N_angiosperm to 800
+            N_angiosperm = 800
+
+            # df_traits_pred change
+            df_traits_pred = df_traits_pred.loc[index_list,:]
 
     for trait in df_traits_pred.columns:
         sampled_error_gym = np.random.choice(error_dic['gymnosperm'][trait], N_gymnosperm, replace=True) * error_weight

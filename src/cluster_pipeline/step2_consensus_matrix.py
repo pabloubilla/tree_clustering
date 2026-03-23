@@ -16,8 +16,9 @@ def same_cluster_matrix(consensus_matrix, labels):
     # Create an n x n boolean matrix where each element (i, j) is True if labels[i] == labels[j]
     label_matrix = labels[:, None] == labels[None, :]
     # Use the boolean matrix to increment the consensus matrix
-    consensus_matrix += label_matrix
+    consensus_matrix += label_matrix.astype(consensus_matrix.dtype)
 
+    
 def check_if_first(filename):
     # Define a regex pattern to extract the Y value from the filename
     pattern = re.compile(r'labels_seed_\d+_(\d+)\.csv')
@@ -37,7 +38,7 @@ def process_files(files):
     df = pd.read_csv(files[0], header=None)
     N_obs = df.shape[0]
     # initialize the consensus matrix
-    consensus_matrix = np.zeros((N_obs, N_obs))
+    consensus_matrix = np.zeros((N_obs, N_obs), dtype=np.uint16)
     
     for file in files:
         print(f'Running file {file}')
@@ -51,7 +52,7 @@ def process_files(files):
         # add to the consensus matrix
         same_cluster_matrix(consensus_matrix, labels)
     
-    consensus_matrix /= N_files  # take average
+    consensus_matrix = consensus_matrix.astype(np.float32) / N_files
     return consensus_matrix
 
 def generate_G_list(files):
