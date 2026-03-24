@@ -233,18 +233,18 @@ def main(random_seed, method, error_weight = 1.0, n_components=5, plot=True,
     os.makedirs(plot_output_path, exist_ok=True)
 
     # Load the data
-    df_traits_pred = pd.read_csv(os.path.join(data_dir, 'traits_pred_log.csv'), index_col=0)
-    df_traits_obs = pd.read_csv(os.path.join(data_dir, 'traits_obs_log.csv'), index_col=0)
+    df_traits_pred = pd.read_csv(os.path.join(data_dir, 'processed', 'traits_pred_log.csv'), index_col=0)
+    df_traits_obs = pd.read_csv(os.path.join(data_dir, 'processed', 'traits_obs_log.csv'), index_col=0)
     if two_traits:
         df_traits_pred = df_traits_pred[trait_list]
         df_traits_obs = df_traits_obs[trait_list]
     observed_traits = df_traits_obs.columns
 
-    error_dic = pickle.load(open(os.path.join(data_dir, 'error_pred_dist.pkl'), 'rb'))
+    error_dic = pickle.load(open(os.path.join(data_dir, 'processed', 'error_pred_dist.pkl'), 'rb'))
 
 
-    gymnosperm = pd.read_csv(os.path.join(data_dir, 'gymnosperms.csv'), index_col=0)['accepted_bin'].values
-    angiosperm = pd.read_csv(os.path.join(data_dir, 'angiosperms.csv'), index_col=0)['accepted_bin'].values
+    gymnosperm = pd.read_csv(os.path.join(data_dir, 'processed', 'gymnosperms.csv'), index_col=0)['accepted_bin'].values
+    angiosperm = pd.read_csv(os.path.join(data_dir, 'processed', 'angiosperms.csv'), index_col=0)['accepted_bin'].values
     gymnosperm = np.intersect1d(gymnosperm, df_traits_pred.index)
     angiosperm = np.intersect1d(angiosperm, df_traits_pred.index)
     N_gymnosperm = gymnosperm.shape[0]

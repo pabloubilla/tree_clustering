@@ -3,7 +3,7 @@ import numpy as np
 import os
 from matplotlib.colors import to_hex, ListedColormap
 import matplotlib.pyplot as plt
-plt.rcParams['font.family'] = 'Arial'
+# plt.rcParams['font.family'] = 'Arial'
 plt.rc('font', size=8)  
 import seaborn as sns
 from sklearn.decomposition import PCA
@@ -114,9 +114,9 @@ def plot_tsne_big(data, tsne_components, clusters, images_dir, color_list):
     df = pd.DataFrame(tsne_components, columns=['tsne1', 'tsne2'])
     df['cluster'] = clusters
 
-    plt.figure(figsize=(linewidth(), linewidth()))
+    plt.figure(figsize=(linewidth(), linewidth()*1.05))
     # markers = ['o', 's', 'D']  # Different markers for variety
-    markers = ['.','*','P'] 
+    markers = ['o','s','P','X','^','p','D'] 
     # palette = create_custom_palette(n_colors=len(np.unique(clusters)))
 
 
@@ -125,15 +125,18 @@ def plot_tsne_big(data, tsne_components, clusters, images_dir, color_list):
     palette = np.array(color_list)
 
     # Scatter plot
-    sns.scatterplot(x='tsne1', y='tsne2', hue='cluster', palette=palette, style='cluster', markers=markers, legend=None, data=df, s=5, alpha = 0.8)
+    sns.scatterplot(x='tsne1', y='tsne2', hue='cluster', palette=palette, style='cluster', markers=markers, legend=True, data=df, s=5, alpha = 0.8)
+
+    # legend at the top
+    plt.legend(bbox_to_anchor=(0.5, 1.02), loc='lower center', ncols=10, fontsize=6, markerscale=2, frameon=True)
 
     # Calculate and plot centroids
-    centroids = df.groupby('cluster')[['tsne1', 'tsne2']].mean().reset_index()
-    for ix, row in centroids.iterrows():
-        plt.text(row['tsne1'], row['tsne2'], str(int(row['cluster'])), 
-                color='black', 
-                fontsize=8, weight='bold', ha='center', va='center', 
-                bbox=dict(facecolor=palette[ix], alpha=0.5, edgecolor='none', pad=0.8))
+    # centroids = df.groupby('cluster')[['tsne1', 'tsne2']].mean().reset_index()
+    # for ix, row in centroids.iterrows():
+    #     plt.text(row['tsne1'], row['tsne2'], str(int(row['cluster'])), 
+    #             color='black', 
+    #             fontsize=8, weight='bold', ha='center', va='center', 
+    #             bbox=dict(facecolor=palette[ix], alpha=0.5, edgecolor='none', pad=0.8))
 
     plt.xlabel('t-SNE 1')
     plt.ylabel('t-SNE 2')
@@ -299,22 +302,86 @@ def plot_correlation_heatmap(data, images_dir):
     plt.savefig(os.path.join(images_dir, 'correlation_heatmap.pdf'))
     plt.clf()
 
+def plot_tsne_top_consensus(tsne_components, clusters, df_clusters, images_dir, color_list, top_n=10):
+    """
+    Plot t-SNE using only the top N clusters by Avg Consensus.
+    """
+
+    # Try to find the cluster ID column in clusters_info.csv
+    possible_cluster_cols = ['Cluster', 'cluster', 'Cluster ID', 'cluster_id']
+    cluster_col = next((col for col in possible_cluster_cols if col in df_clusters.columns), None)
+
+    if cluster_col is None:
+        # Fallback: assume rows are ordered by cluster label
+        top_clusters = df_clusters['Avg Consensus'].nlargest(top_n).index.to_numpy()
+    else:
+        top_clusters = (
+            df_clusters.nlargest(top_n, 'Avg Consensus')[cluster_col]
+            .to_numpy()
+        )
+
+    print(f"Top {top_n} clusters by Avg Consensus: {top_clusters}")
+
+    # Keep only samples belonging to top clusters
+    mask = np.isin(clusters, top_clusters)
+    tsne_top = tsne_components[mask]
+    clusters_top = clusters[mask]
+
+    # Build dataframe
+    df = pd.DataFrame(tsne_top, columns=['tsne1', 'tsne2'])
+    df['cluster'] = clusters_top
+
+    # Map cluster IDs to colors so colors stay consistent
+    unique_clusters = np.sort(np.unique(clusters_top))
+    color_map = {cl: color_list[i % len(color_list)] for i, cl in enumerate(unique_clusters)}
+
+    plt.figure(figsize=(linewidth()*0.85, linewidth()/2.6))
+    markers = ['.', '*', 'P']
+
+    sns.scatterplot(
+        x='tsne1',
+        y='tsne2',
+        hue='cluster',
+        palette=color_map,
+        style='cluster',
+        markers=markers,
+        legend='full',
+        data=df,
+        s=5,
+        alpha=0.8
+    )
+
+    plt.xlabel('t-SNE 1')
+    plt.ylabel('t-SNE 2')
+    plt.tight_layout(pad=0.1)
+    plt.savefig(os.path.join(images_dir, f'tsne_top_{top_n}_consensus_clusters.png'), dpi=400)
+    plt.clf()
+
 
 def main():
 
+    # color_list = [
+    #     'olive', 'salmon', 'lightcoral', 'magenta', 'blue', 'lightsalmon', 'darkred', 'lightgreen', 'darkblue',
+    #     'green', 'darkgreen', 'deepskyblue', 'orange', 'indigo', 'darkorange', 'lightblue', 'purple',
+    #     'lightseagreen', 'pink', 'teal', 'peru', 'plum', 'black', 'sandybrown', 'darkmagenta', 'lime',
+    #     'brown', 'lightgreen', 'coral', 'darkcyan', 'khaki', 'darkviolet', 'violet', 'mediumseagreen',
+    #     'tomato', 'gray', 'gold', 'salmon', 'orchid', 'yellow', 'turquoise', 'tan']
+
     color_list = [
-        'olive', 'salmon', 'lightcoral', 'magenta', 'blue', 'lightsalmon', 'darkred', 'lightgreen', 'darkblue',
-        'green', 'darkgreen', 'deepskyblue', 'orange', 'indigo', 'darkorange', 'lightblue', 'purple',
-        'lightseagreen', 'pink', 'teal', 'peru', 'plum', 'black', 'sandybrown', 'darkmagenta', 'lime',
-        'brown', 'lightgreen', 'coral', 'darkcyan', 'khaki', 'darkviolet', 'violet', 'mediumseagreen',
-        'tomato', 'gray', 'gold', 'salmon', 'orchid', 'yellow', 'turquoise', 'tan']
+        'olive', 'blue', 'teal', 'magenta', 'salmon', 'lightsalmon', 'darkred', 'lightgreen', 'darkblue', 'green', 
+        'darkgreen', 'deepskyblue', 'orange', 'indigo', 'darkorange', 'lightblue', 'purple', 'lightseagreen', 'pink', 'lightcoral', 
+        'peru', 'plum', 'black', 'sandybrown', 'darkmagenta', 'lime', 'brown', 'lightgreen', 'coral', 'darkcyan', 
+        'khaki', 'darkviolet', 'violet', 'mediumseagreen', 'tomato', 'gray', 'gold', 'salmon', 'red', 'yellow', 
+        'turquoise', 'tan', 
+        'darkslategray', 'steelblue', 'mediumvioletred', 'lightsteelblue', 'darkseagreen', 'rosybrown', 'cadetblue']
 
     # method = 'gmm_error1.0_rnd'  # Use the actual method name
-    method_folder = 'full_run_02032026/gmm_error1.0_scl'
+    method_folder = 'gmm_error1.0_scl'
     consensus_data = 'full_data'
+    linkage = 'average'
     # consensus_data = 'Wood density_Leaf area'
-    output_dir = os.path.join('output', 'consensus', method_folder, consensus_data)
-    data_path = os.path.join('data', 'traits_pred_log.csv')
+    output_dir = os.path.join('output', 'consensus', method_folder, consensus_data, linkage)
+    data_path = os.path.join('data', 'processed', 'traits_pred_log.csv')
     
     print(f"Output directory: {output_dir}")
     print(f"Data path: {data_path}")
@@ -323,6 +390,7 @@ def main():
     data = load_original_data(data_path)
     df_clusters = pd.read_csv(os.path.join(output_dir, 'clusters_info.csv'))
     print(df_clusters.head())
+
 
     # plot_traits(data, clusters, ['Wood density', 'Leaf area'], os.path.join(output_dir, 'images'))
 
@@ -337,10 +405,12 @@ def main():
 
     tsne = TSNE(n_components=2, random_state=42)
     tsne_components = tsne.fit_transform(data)
-    plot_tsne(data, tsne_components, clusters, images_dir, color_list)
+    # plot_tsne(data, tsne_components, clusters, images_dir, color_list)
     plot_tsne_big(data, tsne_components, clusters, images_dir, color_list)
     # plot_tsne_with_numbers(data, tsne_components, clusters, images_dir)
     # plot_tsne_3d_with_perspectives(data, clusters, images_dir)
+    # plot_tsne_top_consensus(tsne_components, clusters, df_clusters, images_dir, color_list, top_n=10)
+
 
 if __name__ == '__main__':
     main()

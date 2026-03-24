@@ -316,7 +316,7 @@ if __name__ == "__main__":
     method_folder = 'full_run_02032026/gmm_error1.0_scl'
     consensus_data = 'full_data'
     # consensus_data = 'Wood density_Leaf area'
-    output_dir = os.path.join('output', 'consensus', method_folder, consensus_data)
+    output_dir = os.path.join('output', 'consensus', method_folder, consensus_data, 'ward')
     output_file = 'centroid_trait_statistics.csv'
     trait_stats_dir = os.path.join(output_dir,output_file)
 
@@ -327,7 +327,7 @@ if __name__ == "__main__":
     distance_matrix = 1 - consensus_matrix
     np.fill_diagonal(distance_matrix, 0)
     num_clusters = 42 # OPTIMAL (this should be automatically determined)
-    df_traits = pd.read_csv('data/traits_pred_log.csv', index_col = 0)
+    df_traits = pd.read_csv('data/processed/traits_pred_log.csv', index_col = 0)
     trait_columns = df_traits.columns
 
     clusters, ordered_consensus_matrix, Z = hierarchical_clustering(distance_matrix, consensus_matrix, num_clusters)

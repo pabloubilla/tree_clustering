@@ -1,48 +1,70 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Define directories
-cluster_script="src/cluster_pipeline/step1_cluster_labels.py"  # Update this path
-consensus_script="src/cluster_pipeline/step2_consensus_matrix.py"  # Path to consensus matrix script
-analyse_script="src/cluster_pipeline/step3_analyse_consensus.py"  # Path to analyse consensus script
+set -euo pipefail
 
-# Define method and number of components for GMM
-method="gmm"  # Options: 'hdbscan' or 'gmm'
-# components=20  # Specify number of components if using GMM
-# rnd="_rnd" # If using rnd assignation
-rnd=""
-scl="_scl"
-random_assign="False"
-scale="True"
+echo "===== Run info ====="
+echo "Date: $(date)"
+echo "Hostname: $(hostname)"
+echo "Working dir: $(pwd)"
+echo
 
-# Set the number of threads for MKL, OpenBLAS, and OMP (used by NumPy, SciPy)
-export MKL_NUM_THREADS=1
-export OPENBLAS_NUM_THREADS=1
-export OMP_NUM_THREADS=1
+PYTHON="${PYTHON:-.venv/bin/python3}"
+PYTHON_CMD="$PYTHON -u"
 
-# Define a list of error weights to iterate over
-# error_weights=(0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1)
-error_weights=(1.0)
+STEP1="src/cluster_pipeline/step1_cluster_labels.py"
+STEP2="src/cluster_pipeline/step2_consensus_matrix.py"
+STEP3="src/cluster_pipeline/step3_analyse_consensus.py"
 
-for error_weight in "${error_weights[@]}"; do
-    # Construct the method string with error weight
-    method_with_error="${method}_error${error_weight}"
+# Experiment settings
+SCALES=("True")
+RANDOM_ASSIGNS=("False")
+SEEDS=$(seq 1 50)
 
-    # Run the clustering script for each seed in parallel
-    for seed in {1..3}; do
-        python "$cluster_script" --seed "$seed" --method "$method" --random_assign "$random_assign" --scale "$scale" &
-    done
+# Controls: set these to true/false depending on what you want to run
+RUN_STEP1=false
+RUN_STEP2=false
+RUN_STEP3=true
 
-    # Wait for all background jobs to finish
-    wait
-    echo "All clustering processes have completed for error_weight=${error_weight}."
+# Step 3 options
+N_JOBS="${N_JOBS:-10}"
+LINKAGE_METHOD="${LINKAGE_METHOD:-ward}"
 
-    # Run consensus matrix script
-    python "$consensus_script" --method "$method_with_error""$rnd""$scl"
-    echo "Consensus matrix computation completed for error_weight=${error_weight}."
+for scl in "${SCALES[@]}"; do
+  for rnd in "${RANDOM_ASSIGNS[@]}"; do
+    echo "========================================"
+    echo "Running combination: scale=$scl, random_assign=$rnd"
+    echo "========================================"
 
-    # Run analyse consensus script
-    python "$analyse_script" "$method_with_error""$rnd""$scl" 20
-    echo "Analysis of consensus matrix completed for error_weight=${error_weight}."
+    if [ "$RUN_STEP1" = true ]; then
+      echo "--- Step 1: generate labels for all seeds ---"
+      for seed in $SEEDS; do
+        echo "Running step1 with seed=$seed"
+        $PYTHON_CMD "$STEP1" \
+          --seed "$seed" \
+          --random_assign "$rnd" \
+          --scale "$scl"
+      done
+      echo
+    fi
+
+    if [ "$RUN_STEP2" = true ]; then
+      echo "--- Step 2: build consensus matrix ---"
+      $PYTHON_CMD "$STEP2" \
+        --random_assign "$rnd" \
+        --scale "$scl"
+      echo
+    fi
+
+    if [ "$RUN_STEP3" = true ]; then
+      echo "--- Step 3: analyse consensus ---"
+      $PYTHON_CMD "$STEP3" \
+        --random_assign "$rnd" \
+        --scale "$scl" \
+        --n_jobs "$N_JOBS" \
+        --linkage_method "$LINKAGE_METHOD"
+      echo
+    fi
+  done
 done
 
-echo "All processes have completed for all error weights."
+echo "All requested experiments completed."

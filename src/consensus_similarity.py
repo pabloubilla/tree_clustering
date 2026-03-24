@@ -151,13 +151,13 @@ def main():
     # ---------------------------
     # EDIT THESE FOR YOUR USE CASE
     # ---------------------------
-    input_dir = "output/consensus/gmm_error1.0_scl/small_1000"
+    input_dir = "output/consensus/gmm_error1.0_scl/small_0"
 
     # seed_min_list = [1,51,101,151,201]
     # seed_max_list    = [50,100,150,200,250]
 
     size_per_seed = 50
-    seed_min_list = [1, 51, 101, 151]
+    seed_min_list = [1, 51, 101, 151, 201, 251, 301, 351, 401, 451]
     seed_max_list = [s + size_per_seed - 1 for s in seed_min_list]
 
 
