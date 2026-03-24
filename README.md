@@ -21,7 +21,6 @@ to large file sizes. Please contact the author for access if needed.
 ## Repository Structure
 
     TREE_CLUSTERING/
-    ├── archive/     # Archive of previous runs or experimental outputs
     ├── data/        # Input datasets, trait data, and metadata
     ├── output/      # Results, consensus matrices, and visualizations
     ├── src/         # Source code for clustering and analysis pipeline
