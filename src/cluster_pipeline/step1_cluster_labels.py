@@ -21,6 +21,10 @@ from joblib import Parallel, delayed
 # Scaler
 from sklearn.preprocessing import StandardScaler, RobustScaler
 
+import time
+
+from utils import str_to_bool, make_method_label
+
 def fit_hdbscan(X):
     clusterer = hdbscan.HDBSCAN(min_cluster_size=10)
     clusterer.fit(X)
@@ -56,7 +60,7 @@ def assign_random_labels(gmm, X):
 #             best_n_components = n
 
 #     return best_gmm, best_n_components, best_bic
-def find_best_gmm(X, components_list, output, seed, n_jobs=1):
+def find_best_gmm(X, components_list, output, seed, n_jobs=-1):
     """
     Find the best Gaussian Mixture Model (GMM) based on BIC score.
     
@@ -71,26 +75,33 @@ def find_best_gmm(X, components_list, output, seed, n_jobs=1):
     best_bic: The BIC score of the best GMM.
     """
     
-    def fit_gmm(n):
+    def fit_gmm(n, return_model=False):
         gmm = GaussianMixture(n_components=n, random_state=seed)
         gmm.fit(X)
         bic = gmm.bic(X)
-        return gmm, n, bic
+        if return_model:
+            return n, bic, gmm
+        else:
+            return n, bic
     
     if n_jobs == 1:
         # Sequential computation
         results = [fit_gmm(n) for n in components_list]
     else:
         # Parallel computation
-        pass
+        # pass
         # this needs fix for running with sh
-        # results = Parallel(n_jobs=n_jobs)(delayed(fit_gmm)(n) for n in components_list)
-    bic_list = [r[2] for r in results]
+        results = Parallel(n_jobs=n_jobs)(delayed(fit_gmm)(n) for n in components_list)
+    bic_list = [r[1] for r in results]
     df_bic = pd.DataFrame(np.array([components_list, bic_list]).T, columns = ['N_components', 'BIC'])
     df_bic.to_csv(os.path.join(output,f'BIC_{seed}.csv'))
 
     # Find the best result based on BIC
-    best_gmm, best_n_components, best_bic = min(results, key=lambda x: x[2])
+    best_n_components, best_bic = min(results, key=lambda x: x[1])
+
+    # fit again with lower tolerance
+    best_gmm = GaussianMixture(n_components=best_n_components, random_state=seed)
+    best_gmm.fit(X)
     
     return best_gmm, best_n_components, best_bic
 
@@ -184,16 +195,20 @@ def plot_results(X, labels, output_path, seed, plot_method='PCA'):
     plt.close()
 
 
-def main(random_seed, method, error_weight = 1.0, n_components=5, plot=True, random_assign = True, scale = True):
+def main(random_seed, method, error_weight = 1.0, n_components=5, plot=True, 
+         random_assign = True, scale = True, small_data = False, subset_size = 2000):
     np.random.seed(random_seed)
     verbose = True
-    small_data, subset_size = True, 100
-    two_traits = False
+    if small_data:
+        two_traits = True 
+    else:        
+        two_traits = False
+
     trait_list = ['Wood density', 'Leaf area']
     n_assign = 10
     if method == 'hdbscan': random_assign = False # Hdbscan is always deterministic
     # component_list = [10 + 2*i for i in range(30)]
-    component_list = [i for i in range(10,61)]
+    component_list = [i for i in range(2,61)]
     # component_list = [20,25,30,35,40,45,50,55,60,65,70]
     # component_list = [2,4,6]
 
@@ -218,28 +233,53 @@ def main(random_seed, method, error_weight = 1.0, n_components=5, plot=True, ran
     os.makedirs(plot_output_path, exist_ok=True)
 
     # Load the data
-    df_traits_pred = pd.read_csv(os.path.join(data_dir, 'traits_pred_log.csv'), index_col=0)
-    df_traits_obs = pd.read_csv(os.path.join(data_dir, 'traits_obs_log.csv'), index_col=0)
+    df_traits_pred = pd.read_csv(os.path.join(data_dir, 'processed', 'traits_pred_log.csv'), index_col=0)
+    df_traits_obs = pd.read_csv(os.path.join(data_dir, 'processed', 'traits_obs_log.csv'), index_col=0)
     if two_traits:
         df_traits_pred = df_traits_pred[trait_list]
         df_traits_obs = df_traits_obs[trait_list]
     observed_traits = df_traits_obs.columns
 
-    error_dic = pickle.load(open(os.path.join(data_dir, 'error_pred_dist.pkl'), 'rb'))
+    error_dic = pickle.load(open(os.path.join(data_dir, 'processed', 'error_pred_dist.pkl'), 'rb'))
 
-    if small_data:
-        index_list = df_traits_pred.index[:subset_size]
-        df_traits_pred = df_traits_pred.loc[index_list,:]
-    N_obs = df_traits_pred.shape[0]
 
-    gymnosperm = pd.read_csv(os.path.join(data_dir, 'gymnosperms.csv'), index_col=0)['accepted_bin'].values
-    angiosperm = pd.read_csv(os.path.join(data_dir, 'angiosperms.csv'), index_col=0)['accepted_bin'].values
+    gymnosperm = pd.read_csv(os.path.join(data_dir, 'processed', 'gymnosperms.csv'), index_col=0)['accepted_bin'].values
+    angiosperm = pd.read_csv(os.path.join(data_dir, 'processed', 'angiosperms.csv'), index_col=0)['accepted_bin'].values
     gymnosperm = np.intersect1d(gymnosperm, df_traits_pred.index)
     angiosperm = np.intersect1d(angiosperm, df_traits_pred.index)
     N_gymnosperm = gymnosperm.shape[0]
     N_angiosperm = angiosperm.shape[0]
 
+
+
+
+
+    N_obs = df_traits_pred.shape[0]
+
     X_s = pd.DataFrame(np.ones(df_traits_pred.shape) * np.nan, columns=df_traits_pred.columns, index=df_traits_pred.index)
+
+    if small_data:
+        # rng_small_data = np.random.default_rng(123)
+        # # index_list = df_traits_pred.index[:subset_size]
+        # # df_traits_pred = df_traits_pred.loc[index_list,:]
+        # # randomly sample subset_size indices
+        # index_list = rng_small_data.choice(df_traits_pred.index, size=subset_size, replace=False)
+        # df_traits_pred = df_traits_pred.loc[index_list,:]
+
+        if subset_size == 0:
+            # take gymnosperms and 20 first angiosperms
+            index_list = np.concatenate([gymnosperm, angiosperm[:800]])
+            print(f"Using {len(gymnosperm)} gymnosperms and 800 angiosperms for small data experiment (total {len(index_list)})")
+            X_s = X_s.loc[index_list,:]
+
+            # reduce angiosperm list to 800 first
+            angiosperm = angiosperm[:800]
+
+            # reduce N_angiosperm to 800
+            N_angiosperm = 800
+
+            # df_traits_pred change
+            df_traits_pred = df_traits_pred.loc[index_list,:]
 
     for trait in df_traits_pred.columns:
         sampled_error_gym = np.random.choice(error_dic['gymnosperm'][trait], N_gymnosperm, replace=True) * error_weight
@@ -263,11 +303,11 @@ def main(random_seed, method, error_weight = 1.0, n_components=5, plot=True, ran
     if method == 'hdbscan':
         labels = fit_hdbscan(X_s)
         # Save labels to a CSV file named by the seed
-        pd.Series(labels).to_csv(os.path.join(output_path, f'labels_seed_{random_seed}_0.csv'), index=False)
+        pd.Series(labels).to_csv(os.path.join(output_path, f'labels_seed_{random_seed}_0.csv'), index=False, header=False)
     if method == 'optics':
         labels = fit_optics(X_s)
         # Save labels to a CSV file named by the seed
-        pd.Series(labels).to_csv(os.path.join(output_path, f'labels_seed_{random_seed}_0.csv'), index=False)
+        pd.Series(labels).to_csv(os.path.join(output_path, f'labels_seed_{random_seed}_0.csv'), index=False, header=False)
     elif method == 'gmm':
         bic_path = os.path.join(output_path, 'BIC')
         os.makedirs(bic_path, exist_ok = True)
@@ -277,12 +317,12 @@ def main(random_seed, method, error_weight = 1.0, n_components=5, plot=True, ran
             for asg in range(n_assign):
                 labels = assign_random_labels(gmm, X_s)
                 # Save labels to a CSV file named by the seed
-                pd.Series(labels).to_csv(os.path.join(output_path, f'labels_seed_{random_seed}_{asg}.csv'), index=False)
+                pd.Series(labels).to_csv(os.path.join(output_path, f'labels_seed_{random_seed}_{asg}.csv'), index=False, header=False)
 
         else:
             labels = gmm.predict(X_s)
             # Save labels to a CSV file named by the seed
-            pd.Series(labels).to_csv(os.path.join(output_path, f'labels_seed_{random_seed}_0.csv'), index=False)
+            pd.Series(labels).to_csv(os.path.join(output_path, f'labels_seed_{random_seed}_0.csv'), index=False, header=False)
 
     # Plotting
     if plot:
@@ -292,14 +332,7 @@ def main(random_seed, method, error_weight = 1.0, n_components=5, plot=True, ran
         if two_traits:
             plot_results(X_s, labels, plot_output_path, random_seed, 'traits')
 
-def str_to_bool(value):
-    if isinstance(value, bool):
-        return value
-    if value.lower() in {'false', '0', 'no', 'off'}:
-        return False
-    if value.lower() in {'true', '1', 'yes', 'on'}:
-        return True
-    raise ValueError(f'Invalid boolean value: {value}')
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run clustering with a specified seed and method.')
@@ -310,10 +343,17 @@ if __name__ == '__main__':
     parser.add_argument('--plot', type=str_to_bool, default=False, help='Plot the results using PCA and t-SNE.')
     parser.add_argument('--random_assign', type = str_to_bool, default = True)
     parser.add_argument('--scale', type = str_to_bool, default = True)
+    parser.add_argument('--small_data', type = str_to_bool, default = False, help='Use a smaller subset of the data for testing.')
+    parser.add_argument('--subset_size', type=int, default=2000, help='Number of samples to use if small_data is True.')
     args = parser.parse_args()
 
     # random_seed, method, error_weight = 1.0, n_components=5, plot=True, random_assign = True, scale = True
-    main(args.seed, args.method, args.error_weight, args.components, args.plot, args.random_assign, args.scale)
+
+    print(f'Running with seed={args.seed}, method={args.method}, error_weight={args.error_weight}, components={args.components}, plot={args.plot}, random_assign={args.random_assign}, scale={args.scale}')
+    start_time = time.time()
+    main(args.seed, args.method, args.error_weight, args.components, args.plot, args.random_assign, args.scale, args.small_data, args.subset_size)
+    end_time = time.time()
+    print(f'Execution time: {end_time - start_time:.2f} seconds')
 
 
 

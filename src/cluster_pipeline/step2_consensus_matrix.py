@@ -10,12 +10,15 @@ import seaborn as sns
 import glob
 import argparse
 
+from utils import str_to_bool, make_method_label
+
 def same_cluster_matrix(consensus_matrix, labels):
     # Create an n x n boolean matrix where each element (i, j) is True if labels[i] == labels[j]
     label_matrix = labels[:, None] == labels[None, :]
     # Use the boolean matrix to increment the consensus matrix
-    consensus_matrix += label_matrix
+    consensus_matrix += label_matrix.astype(consensus_matrix.dtype)
 
+    
 def check_if_first(filename):
     # Define a regex pattern to extract the Y value from the filename
     pattern = re.compile(r'labels_seed_\d+_(\d+)\.csv')
@@ -29,23 +32,27 @@ def check_if_first(filename):
 
 def process_files(files):
     N_files = len(files)
+
     
     # read the first file to get the number of observations
-    df = pd.read_csv(files[0], index_col=0)
+    df = pd.read_csv(files[0], header=None)
     N_obs = df.shape[0]
     # initialize the consensus matrix
-    consensus_matrix = np.zeros((N_obs, N_obs))
+    consensus_matrix = np.zeros((N_obs, N_obs), dtype=np.uint16)
     
     for file in files:
         print(f'Running file {file}')
         # read the labels
-        labels = pd.read_csv(file).iloc[:, 0].values
+        labels = pd.read_csv(file, header=None).iloc[:, 0].values
+        # PRINT SHAPE
+        print(f'Labels shape: {labels.shape}')
+        
         # change -1 to nan
         labels = np.where(labels == -1, np.nan, labels)
         # add to the consensus matrix
         same_cluster_matrix(consensus_matrix, labels)
     
-    consensus_matrix /= N_files  # take average
+    consensus_matrix = consensus_matrix.astype(np.float32) / N_files
     return consensus_matrix
 
 def generate_G_list(files):
@@ -63,10 +70,17 @@ def generate_G_list(files):
             G_list.append(len(np.unique(labels)))
     return G_list
 
+# def save_matrix_as_parquet(matrix, output_dir):
+#     df_matrix = pd.DataFrame(matrix)
+#     table = pa.Table.from_pandas(df_matrix)
+#     pq.write_table(table, os.path.join(output_dir, 'consensus_matrix.parquet'))
+
 def save_matrix_as_parquet(matrix, output_dir):
-    df_matrix = pd.DataFrame(matrix)
-    table = pa.Table.from_pandas(df_matrix)
-    pq.write_table(table, os.path.join(output_dir, 'consensus_matrix.parquet'))
+    table = pa.Table.from_arrays(
+        [pa.array(col) for col in matrix.T],
+        names=[f"col_{i}" for i in range(matrix.shape[1])]
+    )
+    pq.write_table(table, os.path.join(output_dir, "consensus_matrix.parquet"))
 
 def plot_G_distribution(G_list, output_file):
     # Convert G_list to a pandas Series
@@ -92,25 +106,41 @@ def plot_G_distribution(G_list, output_file):
     # Show the plot (optional)
     # plt.show()
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Process and generate consensus matrix and G distribution.")
-    parser.add_argument('--method', type=str, default='gmm_error1.0_rnd', help='Method name for processing')
+    parser = argparse.ArgumentParser(description='Run clustering with a specified seed and method.')
+    parser.add_argument('--method', type=str, default='gmm', help='Clustering method to use.')
+    parser.add_argument('--error_weight', type=float, default=1.0, help='Error weight for sampling.')
+    parser.add_argument('--random_assign', type = str_to_bool, default = False)
+    parser.add_argument('--scale', type = str_to_bool, default = True)
+    parser.add_argument('--two_traits', type = str_to_bool, default = False, help='Whether to plot the results using only two traits (wood density and leaf area).')
+    parser.add_argument('--consensus_data', type=str, default='full_data', help='Whether to use the full data or only the two traits for the consensus matrix.')
+    args = parser.parse_args()
+
+
     args = parser.parse_args()
     
     method = args.method
+    error_weight = args.error_weight
+    random_assign = args.random_assign
+    scale = args.scale
+    method_label = make_method_label(method, error_weight, random_assign, scale)
     # consensus_data = 'Wood density_Leaf area'
-    consensus_data = 'small_100'
-    output_dir = os.path.join('output', 'consensus', method, consensus_data)
+    consensus_data = args.consensus_data
+    output_dir = os.path.join('output', 'consensus', method_label, consensus_data)
     image_dir = os.path.join(output_dir, 'images')
     os.makedirs(image_dir, exist_ok=True)
     print('Output dir: ', output_dir)
     files = glob.glob(os.path.join(output_dir, 'labels_*'))
+    # only take first 10 (CHANGE THIS BACK TO ALL FILES LATER)
+    # files = files[:3]
     N_files = len(files)
     print(f'Identified {N_files} files')
 
     # process the files and update the consensus matrix
     t_start = timeit.default_timer()
     consensus_matrix = process_files(files)
+    print('Consensus matrix shape: ', consensus_matrix.shape)
     t_end = timeit.default_timer()
     print('Time taken to run the consensus matrix processing: ')
     print(t_end - t_start)
@@ -127,6 +157,8 @@ def main():
 
     # save the consensus matrix as parquet
     t_start = timeit.default_timer()
+    matrix_shape = consensus_matrix.shape
+    print(f'Saving consensus matrix of size {matrix_shape} as Parquet (Arrow)...')
     save_matrix_as_parquet(consensus_matrix, output_dir)
     t_end = timeit.default_timer()
     print('Time to save as Parquet (Arrow): ', t_end - t_start)
@@ -144,270 +176,5 @@ if __name__ == '__main__':
 
 
 
-
-
-
-
-
-
-####### OLD CODE #####
-# import pandas as pd
-# import os
-# import re
-# import numpy as np
-# import timeit
-# import pyarrow as pa
-# import pyarrow.parquet as pq
-# import matplotlib.pyplot as plt
-# import seaborn as sns
-# import glob
-# import sys
-
-# def same_cluster_matrix(consensus_matrix, labels):
-#     # Create an n x n boolean matrix where each element (i, j) is True if labels[i] == labels[j]
-#     label_matrix = labels[:, None] == labels[None, :]
-#     # Use the boolean matrix to increment the consensus matrix
-#     consensus_matrix += label_matrix
-
-# def check_if_first(filename):
-#     # Define a regex pattern to extract the Y value from the filename
-#     pattern = re.compile(r'labels_seed_\d+_(\d+)\.csv')
-    
-#     match = pattern.search(filename)
-#     if match:
-#         y_value = int(match.group(1))
-#         return y_value == 0
-#     else:
-#         return False
-
-# def process_files(files, consensus_matrix):
-#     N_files = len(files)
-#     G_list = []
-#     for file in files:
-#         print(f'Running file {file}')
-#         # read the labels
-#         labels = pd.read_csv(file).iloc[:, 0].values
-#         # change -1 to nan
-#         labels = np.where(labels == -1, np.nan, labels)
-#         # add to the consensus matrix
-#         same_cluster_matrix(consensus_matrix, labels)
-#         if check_if_first(file):
-#             print(file, '>>>>>>>>> IT IS FIRST')
-#             # add number of clusters
-#             G_list.append(len(set(labels)))
-#     consensus_matrix /= N_files  # take average
-#     return consensus_matrix, G_list
-
-# def save_matrix_as_parquet(matrix, output_dir):
-#     df_matrix = pd.DataFrame(matrix)
-#     table = pa.Table.from_pandas(df_matrix)
-#     pq.write_table(table, os.path.join(output_dir, 'consensus_matrix.parquet'))
-
-# def plot_G_distribution(G_list, output_dir):
-#     # plot distribution of G
-#     plt.figure(figsize=(8, 6))
-#     sns.histplot(G_list, color='skyblue', kde=False)
-#     # x axis
-#     plt.xlabel('$G$*')
-#     # y axis
-#     plt.ylabel('Frequency')
-#     # savefig
-#     plt.savefig(output_dir)
-
-# def main():
-#     if len(sys.argv) != 2:
-#         print("Usage: python script.py <method>")
-#         sys.exit(1)
-    
-#     method = sys.argv[1]
-#     # consensus_data = 'Wood density_Leaf area'
-#     consensus_data = 'full_data'
-#     output_dir = os.path.join('output', 'consensus', method, consensus_data)
-#     image_dir = os.path.join(output_dir, 'images')
-#     os.makedirs(image_dir, exist_ok=True)
-#     print('Output dir: ', output_dir)
-#     files = glob.glob(os.path.join(output_dir, 'labels_*'))
-#     N_files = len(files)
-#     print(f'Identified {N_files} files')
-
-#     # read the first file to get the number of observations
-#     df = pd.read_csv(files[0], index_col=0)
-#     N_obs = df.shape[0]
-
-#     # initialize the consensus matrix
-#     consensus_matrix = np.zeros((N_obs, N_obs))
-
-#     # process the files and update the consensus matrix
-#     t_start = timeit.default_timer()
-#     consensus_matrix, G_list = process_files(files, consensus_matrix)
-#     t_end = timeit.default_timer()
-#     print('Time taken to run the code v3: ')
-#     print(t_end - t_start)
-
-#     # plot G distribution
-#     plot_G_distribution(G_list, os.path.join(image_dir, 'G_dist.pdf'))
-
-#     # save the consensus matrix as parquet
-#     t_start = timeit.default_timer()
-#     save_matrix_as_parquet(consensus_matrix, output_dir)
-#     t_end = timeit.default_timer()
-#     print('Time to save as Parquet (Arrow): ', t_end - t_start)
-
-# if __name__ == '__main__':
-#     main()
-
-
-
-
-# def same_cluster_matrix_v1(consensus_matrix, labels, N_obs):
-#     """
-#     add to consensus matrix for this iteration
-#     """
-#     unique_labels = np.unique(labels)
-#     # iterate over unique labels
-#     for label in unique_labels:
-#         # get the indices of the label
-#         indices = np.where(labels == label)[0]
-#         # iterate over the indices
-#         for i in range(len(indices)):
-#             for j in range(i+1, len(indices)):
-#                 consensus_matrix[indices[i], indices[j]] += 1
-#                 consensus_matrix[indices[j], indices[i]] += 1
-
-
-# def same_cluster_matrix_v2(consensus_matrix, labels, n):
-#     """
-#     Compute the matrix of same cluster membership
-#     """
-#     for i in range(n):
-#         for j in range(i+1, n):
-#             if labels[i] == labels[j]:
-#                 consensus_matrix[i, j] += 1
-#                 consensus_matrix[j, i] += 1
-
-# def same_cluster_matrix_v3(consensus_matrix, labels):
-
-#     # Create an n x n boolean matrix where each element (i, j) is True if labels[i] == labels[j]
-#     label_matrix = labels[:, None] == labels[None, :]
-
-#     # Use the boolean matrix to increment the consensus matrix
-#     consensus_matrix += label_matrix
-
-
-
-# if __name__ == '__main__':
-#     method = 'hdbscan_error0.5'
-#     # output_dir
-#     output_dir = os.path.join('output', 'consensus', method, 'full_data')
-#     # read all files in the output_dir
-#     files = glob.glob(os.path.join(output_dir, 'labels_*'))
-#     N_files = len(files)
-#     print(f'Identified {N_files} files')
-
-#     # read the first file
-#     df = pd.read_csv(files[0], index_col=0)
-#     # get the number of observations
-#     N_obs = df.shape[0]
-#     # initialize the consensus matrix
-#     consensus_matrix = np.zeros((N_obs, N_obs))
-#     # iterate over the files
-
-#     # ### See version 1 ###
-#     # t_start = timeit.default_timer()
-#     # for file in files:
-#     #     # read the labels
-#     #     labels = pd.read_csv(os.path.join(output_dir, file)).iloc[:,0].values
-#     #     # add to the consensus matrix
-#     #     same_cluster_matrix_v1(consensus_matrix, labels, N_obs)
-#     # t_end = timeit.default_timer()
-#     # print('Time taken to run the code v1: ')
-#     # print(t_end - t_start)
-
-#     # ### See version 2 ###
-#     # t_start = timeit.default_timer()
-#     # for file in files:
-#     #     # read the labels
-#     #     labels = pd.read_csv(os.path.join(output_dir, file)).iloc[:,0].values
-#     #     # add to the consensus matrix
-#     #     same_cluster_matrix_v2(consensus_matrix, labels, N_obs)
-#     # t_end = timeit.default_timer()
-#     # print('Time taken to run the code v2: ')
-#     # print(t_end - t_start)
-
-#     ### See version 3 ### (FASTER)
-#     t_start = timeit.default_timer()
-#     for file in files:
-#         print(f'Running file {file}')
-#         # read the labels
-#         labels = pd.read_csv(file).iloc[:,0].values
-#         # change -1 to nan
-#         labels = np.where(labels == -1, np.nan, labels)
-#         # add to the consensus matrix
-#         same_cluster_matrix_v3(consensus_matrix, labels)
-#     consensus_matrix = consensus_matrix/N_files # take average
-#     t_end = timeit.default_timer()
-#     print('Time taken to run the code v3: ')
-#     print(t_end - t_start)
-
-#     # TRIANGLE MATRIX
-#     # upper_triangle = sp.triu(consensus_matrix, k=1)
-
-#     # ### SPARSE UPPER TRIANGLE ###
-#     # t_start = timeit.default_timer()
-#     # sparse_matrix = sp.csr_matrix(upper_triangle)
-#     # sp.save_npz(os.path.join(output_dir,'consensus_matrix_upper_sparse.npz'), sparse_matrix)
-#     # t_end = timeit.default_timer()
-#     # print('Time to save sparse (upper triangle): ', t_end - t_start)
-
-
-#     # ### ARROW UPPER TRIANGLE ###
-#     # df_upper_triangle = pd.DataFrame(upper_triangle.toarray())
-#     # t_start = timeit.default_timer()
-#     # table = pa.Table.from_pandas(df_upper_triangle)
-#     # pq.write_table(table, os.path.join(output_dir, 'consensus_matrix_upper.parquet'))
-#     # t_end = timeit.default_timer()
-#     # print('Time to save as Parquet (upper triangle): ', t_end - t_start)
-
-#     ### ARROW ### (THIS IS PROBABLY THE BEST)
-#     df_matrix = pd.DataFrame(consensus_matrix)
-#     t_start = timeit.default_timer()
-#     table = pa.Table.from_pandas(df_matrix)
-#     pq.write_table(table, os.path.join(output_dir, 'consensus_matrix.parquet'))
-#     t_end = timeit.default_timer()
-#     print('Time to save as Parquet (Arrow): ', t_end - t_start)
-
-
-#     # ### SAVE AS SPARSE ###
-#     # t_start = timeit.default_timer()
-#     # # make it sparse
-#     # sparse_matrix = sp.csr_matrix(consensus_matrix)
-#     # # Save the sparse matrix
-#     # sp.save_npz(os.path.join(output_dir,'consensus_matrix_sparse.npz'), sparse_matrix)
-#     # t_end = timeit.default_timer()
-#     # print('Time to save sparse: ', t_end - t_start)
-
-#     # ### SAVE AS NPY ###
-#     # t_start = timeit.default_timer()
-#     # # save as npy
-#     # print(f'Saving a {N_obs}x{N_obs} matrix')
-#     # np.save(os.path.join(output_dir,'consensus_matrix.npy'), consensus_matrix)
-#     # t_end = timeit.default_timer()
-#     # print('Time to save npy: ', t_end - t_start)
-
-
-#     # ### SAVE AS CSV ###
-#     # t_start = timeit.default_timer()
-#     # np.savetxt(os.path.join(output_dir, 'consensus_matrix.csv'), consensus_matrix, delimiter=',')
-#     # t_end = timeit.default_timer()
-#     # print('Time to save csv: ', t_end - t_start)
-
-
-
-
-#     # sparse: 1362 s, 4.3 Gb
-#     # sparse (upper): 544 s, 2 Gb 
-#     # npy: 159 s, 18 Gb
-#     # csv 573 s, 57 Gb
-#     # Parquet (upper): 50 s, 400 Mb
 
 

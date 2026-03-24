@@ -649,7 +649,7 @@ if __name__ == '__main__':
     # C:\Users\pablo\OneDrive\Desktop\tree_clustering\output\imputed_data\gaussian_mixture\clusters_200.csv
     # clusters = pd.read_csv('output/complete_data/gaussian_mixture_full/clusters_1000.csv',
     #                        index_col=0)
-    clusters = pd.read_csv(f'output/consensus/{method}/full_data/final_clusters.csv',
+    clusters = pd.read_csv(f'output/consensus/{method}/full_data/ward/final_clusters.csv',
                             names = ['cluster'])
     clusters['accepted_bin'] = species_list
 
